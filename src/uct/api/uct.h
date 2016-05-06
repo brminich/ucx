@@ -1056,9 +1056,10 @@ ucs_status_t uct_rkey_release(const uct_rkey_bundle_t *rkey_ob);
  * @ingroup UCT_RESOURCE
  * @brief
  */
-UCT_INLINE_API ucs_status_t uct_iface_flush(uct_iface_h iface)
+UCT_INLINE_API ucs_status_t uct_iface_flush(uct_iface_h iface, unsigned flags,
+                                            uct_completion_t *comp)
 {
-    return iface->ops.iface_flush(iface);
+    return iface->ops.iface_flush(iface, flags, comp);
 }
 
 
@@ -1313,9 +1314,10 @@ UCT_INLINE_API void uct_ep_pending_purge(uct_ep_h ep, uct_pending_callback_t cb)
  * @ingroup UCT_RESOURCE
  * @brief
  */
-UCT_INLINE_API ucs_status_t uct_ep_flush(uct_ep_h ep)
+UCT_INLINE_API ucs_status_t uct_ep_flush(uct_ep_h ep, unsigned flags,
+                                         uct_completion_t *comp)
 {
-    return ep->iface->ops.ep_flush(ep);
+    return ep->iface->ops.ep_flush(ep, flags, comp);
 }
 
 #endif
