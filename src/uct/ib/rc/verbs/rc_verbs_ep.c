@@ -633,27 +633,39 @@ ucs_status_t uct_rc_verbs_ep_flush(uct_ep_h tl_ep, unsigned flags,
 {
     uct_rc_verbs_iface_t *iface = ucs_derived_of(tl_ep->iface, uct_rc_verbs_iface_t);
     uct_rc_verbs_ep_t *ep = ucs_derived_of(tl_ep, uct_rc_verbs_ep_t);
-    ucs_status_t status;
-
-    if (comp != NULL) {
-        return UCS_ERR_UNSUPPORTED;
-    }
+    ucs_status_t status = UCS_OK;
+    uct_pending_req_t *req;
 
     if (ep->super.available == iface->super.config.tx_qp_len) {
         UCT_TL_EP_STAT_FLUSH(&ep->super.super);
         return UCS_OK;
     }
 
-    if (ep->super.unsignaled != 0) {
+    if (ep->super.unsignaled != 0 || 
+        !ucs_arbiter_group_is_empty(&ep->super.arb_group)) {
+
         if (IBV_DEVICE_HAS_NOP(&uct_ib_iface_device(&iface->super.super)->dev_attr)) {
             status = uct_rc_verbs_ep_nop(ep);
         } else {
             status = uct_rc_verbs_ep_put_short(tl_ep, NULL, 0, 0, 0);
         }
-        if (status != UCS_OK) {
-            return status;
+    }
+    
+    if (comp != NULL) {
+        if (status == UCS_OK) {
+            uct_rc_ep_add_send_comp(&iface->super, &ep->super, comp,
+                    ep->tx.post_count);
+        } else if (status == UCS_ERR_NO_RESOURCE) {
+            req = ucs_mpool_get_inline(&iface->super.super.aux_mp);
+            status = uct_ep_pending_add(tl_ep, req);
+            ucs_assert(status == UCS_OK);
         }
     }
+    
+    if (status != UCS_OK) { 
+        return status;
+    }
+    
     UCT_TL_EP_STAT_FLUSH_WAIT(&ep->super.super);
     return UCS_INPROGRESS;
 }

@@ -40,6 +40,12 @@ static ucs_stats_class_t uct_iface_stats_class = {
 };
 #endif
 
+ucs_mpool_ops_t uct_aux_mpool_ops = {
+    .chunk_alloc   = ucs_mpool_chunk_malloc,
+    .chunk_release = ucs_mpool_chunk_free,
+    .obj_init      = NULL,
+    .obj_cleanup   = NULL
+};
 
 static ucs_status_t uct_iface_stub_am_handler(void *arg, void *data,
                                               size_t length, void *desc)
@@ -264,6 +270,11 @@ UCS_CLASS_INIT_FUNC(uct_base_iface_t, uct_iface_ops_t *ops, uct_pd_h pd,
     if (status != UCS_OK) {
         return status;
     }
+
+    /* Create memory pool for requests */
+    status = ucs_mpool_init(&self->aux_mp, 0, sizeof(uct_flush_comp_t)),
+                            0, UCS_SYS_CACHE_LINE_SIZE, 128, UINT_MAX,
+                            &uct_aux_mpool_ops, "uct_auxillary");
 
     return UCS_OK;
 }

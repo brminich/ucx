@@ -138,6 +138,17 @@ typedef struct uct_wakeup {
     int                         fd;
 } uct_wakeup_t;
 
+/**
+ * Structure for tracking the moment from which flush is needed
+ */
+typedef struct uct_flush_comp {
+    uct_completion_t      *orig_comp;
+    union {
+        uct_completion_t  aux_comp;
+        uct_pending_req_t req;
+    }    
+} uct_flush_comp_t;
+
 
 /**
  * Base structure of all interfaces.
@@ -151,6 +162,8 @@ typedef struct uct_base_iface {
     uct_am_handler_t  am[UCT_AM_ID_MAX];     /* Active message table */
     uct_am_tracer_t   am_tracer;             /* Active message tracer */
     void              *am_tracer_arg;        /* Tracer argument */
+    ucs_mpool_t       aux_mp;                /* Pool for aux interface objects
+                                                (like request or completion) */    
 
     struct {
         unsigned            num_alloc_methods;

@@ -109,6 +109,13 @@ ucs_config_field_t uct_ib_iface_config_table[] = {
   {NULL}
 };
 
+ucs_mpool_ops_t uct_ib_aux_mpool_ops = {
+    .chunk_alloc   = ucs_mpool_chunk_malloc,
+    .chunk_release = ucs_mpool_chunk_free,
+    .obj_init      = NULL,
+    .obj_cleanup   = NULL
+};
+
 static void uct_ib_iface_recv_desc_init(uct_iface_h tl_iface, void *obj, uct_mem_h memh)
 {
     uct_ib_iface_recv_desc_t *desc = obj;
@@ -401,6 +408,12 @@ UCS_CLASS_INIT_FUNC(uct_ib_iface_t, uct_ib_iface_ops_t *ops, uct_pd_h pd,
         status = UCS_ERR_UNSUPPORTED;
         goto err_destroy_recv_cq;
     }
+    
+    /* Create memory pool for requests */
+    status = ucs_mpool_init(&self->aux_mp, 0,
+                            ucs_max(sizeof(uct_pending_req_t), sizeof(uct_completion_t)),
+                            0, UCS_SYS_CACHE_LINE_SIZE, 128, UINT_MAX,
+                            &uct_ib_aux_mpool_ops, "uct_auxillary");
 
     ucs_debug("created uct_ib_iface_t headroom_ofs %d payload_ofs %d hdr_ofs %d data_sz %d",
               self->config.rx_headroom_offset, self->config.rx_payload_offset,

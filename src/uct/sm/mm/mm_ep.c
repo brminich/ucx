@@ -536,12 +536,31 @@ ucs_status_t uct_mm_ep_get_bcopy(uct_ep_h tl_ep, uct_unpack_callback_t unpack_cb
 ucs_status_t uct_mm_ep_flush(uct_ep_h tl_ep, unsigned flags,
                              uct_completion_t *comp)
 {
-    if (comp != NULL) {
-        return UCS_ERR_UNSUPPORTED;
+    uct_flush_comp_t  *flush_comp;
+    uct_mm_ep_t *ep = ucs_derived_of(tl_ep, uct_mm_ep_t);
+
+    if (comp != NULL && !ucs_arbiter_group_is_empty(&ep->arb_group)) {
+        flush_comp = ucs_mpool_get_inline(&ep->super.aux_mp);
+        if (flush_comp == NULL) {
+            return UCS_ERR_NO_MEMORY;
+        }
+        flush_comp->orig_comp = comp;
+        flush_comp->req.func  = uct_pending_comp;
+
+        ucs_arbiter_elem_init((ucs_arbiter_elem_t *)flush_comp->req.priv);
+        ucs_arbiter_group_push_elem(&ep->arb_group, (ucs_arbiter_elem_t*)flush_comp->req.priv);
+
+        return UCS_INPROGRESS;
     }
 
     ucs_memory_cpu_store_fence();
     UCT_TL_EP_STAT_FLUSH(ucs_derived_of(tl_ep, uct_base_ep_t));
     return UCS_OK;
 }
+
+
+
+
+
+
 

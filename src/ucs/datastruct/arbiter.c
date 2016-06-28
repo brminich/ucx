@@ -122,7 +122,7 @@ void ucs_arbiter_dispatch_nonempty(ucs_arbiter_t *arbiter, unsigned per_group,
 
     next_group = arbiter->current;
     ucs_assert(next_group != NULL);
-
+   do {
     do {
         group_head    = next_group;
         prev_group    = ucs_list_prev(&group_head->list, ucs_arbiter_elem_t, list);
@@ -131,7 +131,7 @@ void ucs_arbiter_dispatch_nonempty(ucs_arbiter_t *arbiter, unsigned per_group,
         ucs_assert(next_group->list.prev == &group_head->list);
 
         group_dispatch_count = 0;
-        group         = group_head->group;
+        group         = group_head->group        last_elem     = group->tail;
         last_elem     = group->tail;
         next_elem     = group_head;
 
@@ -248,3 +248,27 @@ void ucs_arbiter_dump(ucs_arbiter_t *arbiter, FILE *stream)
 out:
     fprintf(stream, "-------\n");
 }
+
+void ucs_arbiter_add_comp_to_each_group()
+{
+    ucs_arbiter_elem_t *first_group;
+    uct_aux_comp_t     *comp;
+    
+    if (arbiter->current == NULL) {
+        return;
+    }
+    
+    first_group = arbiter->current;
+
+    do {
+        comp = ucs_mpool_get_inline();
+
+    } while ()
+        
+
+
+
+}
+
+
+

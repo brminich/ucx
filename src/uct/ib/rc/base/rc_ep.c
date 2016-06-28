@@ -369,6 +369,24 @@ ucs_status_t uct_rc_ep_fc_grant(uct_pending_req_t *self)
     return (ucs_derived_of(iface->ops, uct_rc_iface_ops_t))->fc_ctrl(ep);
 }
 
+ucs_status_t uct_rc_ep_flush_pend(uct_pending_req_t *self)
+{
+    uct_rc_ep_t *ep = ucs_container_of(self, uct_rc_ep_t, fc_grant_req);
+    uct_ib_iface_t *iface = ucs_derived_of(ep->super.super.iface, uct_ib_iface_t);
+
+    if (IBV_DEVICE_HAS_NOP(&uct_ib_iface_device(&iface->super.super)->dev_attr)) {
+        status = uct_rc_verbs_ep_nop(ep);
+    } else {
+        status = uct_rc_verbs_ep_put_short(tl_ep, NULL, 0, 0, 0);
+    }
+    
+    if (status == UCS_OK) {
+        uct_rc_ep_add_send_comp(&iface->super, &ep->super, comp,
+                                ep->tx.post_count);
+    }    
+    return status;
+}
+
 #define UCT_RC_DEFINE_ATOMIC_HANDLER_FUNC(_num_bits, _is_be) \
     void UCT_RC_DEFINE_ATOMIC_HANDLER_FUNC_NAME(_num_bits, _is_be) \
             (uct_rc_iface_send_op_t *op) \

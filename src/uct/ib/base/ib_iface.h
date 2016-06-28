@@ -91,6 +91,7 @@ struct uct_ib_iface {
     struct ibv_cq           *send_cq;
     struct ibv_cq           *recv_cq;
     struct ibv_comp_channel *comp_channel;
+    ucs_mpool_t             aux_mp;  
 
     struct {
         unsigned            rx_payload_offset;   /* offset from desc to payload */
