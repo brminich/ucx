@@ -556,7 +556,7 @@ typedef ssize_t (*uct_sockaddr_priv_pack_callback_t)(void *arg,
 typedef ucs_status_t (*uct_tag_unexp_eager_cb_t)(void *arg, void *data,
                                                  size_t length, unsigned flags,
                                                  uct_tag_t stag, uint64_t imm,
-                                                 void **context);
+                                                 uint64_t *context);
 
 
 /**

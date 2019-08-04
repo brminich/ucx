@@ -51,7 +51,7 @@ ucs_status_t ucp_tag_offload_start_rndv(ucp_request_t *sreq);
 
 ucs_status_t ucp_tag_offload_unexp_eager(void *arg, void *data, size_t length,
                                          unsigned flags, uct_tag_t stag,
-                                         uint64_t imm, void **context);
+                                         uint64_t imm, uint64_t *context);
 
 
 ucs_status_t ucp_tag_offload_unexp_rndv(void *arg, unsigned flags, uint64_t stag,

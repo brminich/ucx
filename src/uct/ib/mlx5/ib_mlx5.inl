@@ -19,6 +19,19 @@ uct_ib_mlx5_cqe_is_hw_owned(uint8_t op_own, unsigned index, unsigned mask)
     return (op_own & MLX5_CQE_OWNER_MASK) == !(index & mask);
 }
 
+static UCS_F_ALWAYS_INLINE int
+uct_ib_mlx5_cqe_is_grh_present(struct mlx5_cqe64* cqe)
+{
+    return (ntohl(cqe->flags_rqpn) >> 28) & 3;
+}
+
+static UCS_F_ALWAYS_INLINE void*
+uct_ib_mlx5_gid_from_cqe(struct mlx5_cqe64* cqe)
+{
+    ucs_assert(uct_ib_mlx5_cqe_is_grh_present(cqe) == 2);
+    return UCS_PTR_BYTE_OFFSET(cqe, -40);
+}
+
 static UCS_F_ALWAYS_INLINE struct mlx5_cqe64*
 uct_ib_mlx5_poll_cq(uct_ib_iface_t *iface, uct_ib_mlx5_cq_t *cq)
 {
@@ -455,7 +468,7 @@ uct_ib_mlx5_post_send(uct_ib_mlx5_txwq_t *wq,
 static inline uct_ib_mlx5_srq_seg_t *
 uct_ib_mlx5_srq_get_wqe(uct_ib_mlx5_srq_t *srq, uint16_t index)
 {
-    return srq->buf + (index & srq->mask) * UCT_IB_MLX5_SRQ_STRIDE;
+    return srq->buf + (index & srq->mask) * srq->stride;
 }
 
 static inline uint16_t uct_ib_mlx5_calc_av_sport(uint32_t rqpn, uint32_t qpn)
