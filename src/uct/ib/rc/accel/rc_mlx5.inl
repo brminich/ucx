@@ -84,6 +84,7 @@ uct_rc_mlx5_iface_release_srq_seg(uct_rc_mlx5_iface_common_t *iface,
     void *udesc;
     uint16_t wqe_index;
     int stride_idx;
+    int seg_free; /* TODO: Optimize it */
 
     /* Need to wrap wqe_ctr, because in case of cyclic srq topology
      * it is wrapped around 0xFFFF regardless of real SRQ size.
@@ -103,16 +104,21 @@ uct_rc_mlx5_iface_release_srq_seg(uct_rc_mlx5_iface_common_t *iface,
             return;
         }
         seg->srq.strides = iface->tm.mp.num_strides;
-    } else if (status != UCS_OK) {
+        seg_free         = (seg->srq.ptr_mask == UCS_MASK(iface->tm.mp.num_strides));
+    } else {
+        if (status != UCS_OK) {
              udesc                = (char*)seg->srq.desc + offset;
              uct_recv_desc(udesc) = release_desc;
              seg->srq.ptr_mask   &= ~1;
              seg->srq.desc        = NULL; /* TODO MP: No need ?? */
+             seg_free             = 0;
+        } else {
+             seg_free             = 1;
+        }
     }
 
-    if (ucs_likely((status == UCS_OK) &&
-                   (wqe_index == ((iface->rx.srq.ready_idx + 1) &
-                                  iface->rx.srq.mask)))) {
+    if (ucs_likely(seg_free && (wqe_index == ((iface->rx.srq.ready_idx + 1) &
+                                              iface->rx.srq.mask)))) {
          /* If the descriptor was not used - if there are no "holes", we can just
           * reuse it on the receive queue. Otherwise, ready pointer will stay behind
           * until post_recv allocated more descriptors from the memory pool, fills
@@ -1303,10 +1309,11 @@ uct_rc_mlx5_iface_common_poll_rx(uct_rc_mlx5_iface_common_t *iface,
          * non-inline function. */
         seg = uct_ib_mlx5_srq_get_wqe(&iface->rx.srq, ntohs(cqe->wqe_counter));
         ucs_assert(seg->srq.strides);
-        --seg->srq.strides;
         uct_rc_mlx5_iface_release_srq_seg(iface, seg, cqe,
                                           ntohs(cqe->wqe_counter), UCS_OK,
                                           0, NULL);
+        count = 0;
+        goto done;
     }
 
     /* Should be a fast path, because small (latency-critical) messages
