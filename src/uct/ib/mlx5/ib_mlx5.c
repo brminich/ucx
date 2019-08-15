@@ -605,7 +605,6 @@ ucs_status_t uct_ib_mlx5_srq_init(uct_ib_mlx5_srq_t *srq, struct ibv_srq *verbs_
 
     srq->buf    = srq_info.dv.buf;
     srq->db     = srq_info.dv.dbrec;
-    srq->stride = stride;
     uct_ib_mlx5_srq_buff_init(srq, srq_info.dv.head, srq_info.dv.tail,
                               sg_byte_count, sge_num);
     return UCS_OK;

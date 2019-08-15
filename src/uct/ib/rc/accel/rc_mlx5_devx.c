@@ -20,21 +20,23 @@ uct_rc_mlx5_devx_init_rx_tm(uct_rc_mlx5_iface_common_t *iface,
 {
     uct_ib_mlx5_md_t *md = ucs_derived_of(uct_ib_iface_md(&iface->super.super), uct_ib_mlx5_md_t);
     uct_ib_device_t *dev = &md->super.dev;
-    uint32_t in[UCT_IB_MLX5DV_ST_SZ_DW(create_xrq_in)] = {};
+    uint32_t in[UCT_IB_MLX5DV_ST_SZ_DW(create_xrq_in)]   = {};
     uint32_t out[UCT_IB_MLX5DV_ST_SZ_DW(create_xrq_out)] = {};
-    ucs_status_t status = UCS_ERR_NO_MEMORY;
+    ucs_status_t status   = UCS_ERR_NO_MEMORY;
     struct mlx5dv_pd dvpd = {};
     struct mlx5dv_cq dvcq = {};
-    struct mlx5dv_obj dv = {};
+    struct mlx5dv_obj dv  = {};
     void *xrqc, *wq;
-    int len, ret, max;
+    int len, ret, max, stride;
 
-    uct_rc_mlx5_init_rx_tm_common(iface, rndv_hdr_len);
+    uct_rc_mlx5_init_rx_tm_common(iface, config, rndv_hdr_len);
 
-    max = ucs_max(config->super.rx.queue_len, UCT_IB_MLX5_XRQ_MIN_UWQ_POST);
-    max = ucs_roundup_pow2(max);
-    len = max * UCT_IB_MLX5_SRQ_STRIDE;
-    ret = posix_memalign(&iface->rx.srq.buf, ucs_get_page_size(), len);
+    stride = uct_ib_mlx5_srq_stride(iface->tm.mp.num_strides);
+    max    = uct_ib_mlx5_srq_max_wrs(config->super.rx.queue_len,
+                                     iface->tm.mp.num_strides);
+    max    = ucs_roundup_pow2(max);
+    len    = max * stride;
+    ret    = posix_memalign(&iface->rx.srq.buf, ucs_get_page_size(), len);
     if (ret) {
         return status;
     }
@@ -81,6 +83,13 @@ uct_rc_mlx5_devx_init_rx_tm(uct_rc_mlx5_iface_common_t *iface,
     UCT_IB_MLX5DV_SET64(wq, wq, dbr_addr,    iface->rx.srq.devx.dbrec->offset);
     UCT_IB_MLX5DV_SET(wq, wq, wq_umem_id,    iface->rx.srq.devx.mem->umem_id);
 
+    if (UCT_RC_MLX5_MP_ENABLED(iface)) {
+        UCT_IB_MLX5DV_SET(wq, wq, log_wqe_num_of_strides,
+                          ucs_ilog2(iface->tm.mp.num_strides));
+        UCT_IB_MLX5DV_SET(wq, wq, log_wqe_stride_size,
+                          ucs_ilog2(iface->super.super.config.seg_size));
+    }
+
     iface->rx.srq.devx.obj = mlx5dv_devx_obj_create(dev->ibv_context, in, sizeof(in),
                                                     out, sizeof(out));
     if (iface->rx.srq.devx.obj == NULL) {
@@ -92,11 +101,17 @@ uct_rc_mlx5_devx_init_rx_tm(uct_rc_mlx5_iface_common_t *iface,
 
     iface->rx.srq.type        = UCT_IB_MLX5_OBJ_TYPE_DEVX;
     iface->rx.srq.srq_num     = UCT_IB_MLX5DV_GET(create_xrq_out, out, xrqn);
+    iface->rx.srq.stride      = stride;
     uct_rc_mlx5_iface_tm_set_cmd_qp_len(iface);
     uct_ib_mlx5_srq_buff_init(&iface->rx.srq, 0, max - 1,
                               iface->super.super.config.seg_size,
                               iface->tm.mp.num_strides);
     iface->super.rx.srq.quota = max - 1;
+
+    ucs_warn("DEVX, MP num strides %d, stride size %d",
+            ucs_ilog2(iface->tm.mp.num_strides),
+            ucs_ilog2(iface->super.super.config.seg_size));
+
     return UCS_OK;
 
 err_free:

@@ -653,20 +653,21 @@ static void uct_rc_mlx5_iface_common_dm_tl_cleanup(uct_mlx5_dm_data_t *data)
 
 #if IBV_HW_TM
 
-#if HAVE_DECL_IBV_EXP_CREATE_SRQ
 static ucs_mpool_ops_t uct_rc_mlx5_tm_mp_mpool_ops = {
     ucs_mpool_chunk_malloc,
     ucs_mpool_chunk_free,
     NULL,
     NULL
 };
-#endif
 
 void uct_rc_mlx5_init_rx_tm_common(uct_rc_mlx5_iface_common_t *iface,
+                                   const uct_rc_iface_common_config_t *config,
                                    unsigned rndv_hdr_len)
 {
     uct_ib_md_t *md       = uct_ib_iface_md(&iface->super.super);
     unsigned tmh_hdrs_len = sizeof(struct ibv_tmh) + rndv_hdr_len;
+    unsigned log_num_strides;
+    ucs_status_t status;
 
     iface->tm.eager_desc.super.cb = uct_rc_mlx5_release_desc;
     iface->tm.eager_desc.offset   = sizeof(struct ibv_tmh)
@@ -687,6 +688,50 @@ void uct_rc_mlx5_init_rx_tm_common(uct_rc_mlx5_iface_common_t *iface,
      * ptr_array is used as operation ID and is passed in "app_context"
      * of TM header. */
     ucs_ptr_array_init(&iface->tm.rndv_comps, 0, "rm_rndv_completions");
+
+    if (!UCT_RC_MLX5_MP_ENABLED(iface)) {
+        return;
+    }
+
+    log_num_strides = ucs_ilog2(iface->tm.mp.num_strides);
+
+    ucs_assert_always(uct_ib_mtu_value(uct_ib_iface_port_attr(&(iface)->super.super)->active_mtu) ==
+                      iface->super.super.config.seg_size);
+    ucs_assert_always(IBV_DEVICE_MP_CAPS(&md->dev, min_single_wqe_log_num_of_strides) <=
+                      log_num_strides);
+
+    status = uct_iface_mpool_init(&iface->super.super.super,
+                                  &iface->tm.mp.tx_mp,
+                                  sizeof(uct_rc_iface_send_desc_t) +
+                                  UCT_RC_MLX5_TAG_BCOPY_MAX,
+                                  sizeof(uct_rc_iface_send_desc_t),
+                                  UCS_SYS_CACHE_LINE_SIZE,
+                                  &config->super.tx.mp,
+                                  iface->super.config.tx_qp_len,
+                                  uct_rc_iface_send_desc_init,
+                                  "tag_eager_send_desc");
+    if (status != UCS_OK) {
+        return;
+    }
+
+    status = ucs_mpool_init(&iface->tm.mp.rx_meta_mp, 0,
+                            sizeof(uct_rc_mlx5_tm_mp_val_t), 0,
+                            UCS_SYS_CACHE_LINE_SIZE, 64, UINT_MAX,
+                            &uct_rc_mlx5_tm_mp_mpool_ops,
+                            "mp_rx_meta_data");
+    if (status != UCS_OK) {
+        ucs_mpool_cleanup(&iface->tm.mp.tx_mp, 0);
+        return;
+    }
+
+    kh_init_inplace(uct_rc_mlx5_tm_mp_hash, &iface->tm.mp.hash);
+
+    /* Redefine tag eager thresholds */
+    iface->tm.max_zcopy = uct_ib_iface_port_attr(&iface->super.super)->max_msg_sz;
+    iface->tm.max_bcopy = UCT_RC_MLX5_TAG_BCOPY_MAX;
+
+    ucs_debug("Multi-Packet WQ config: stride size %d, strides per WQE %d",
+              iface->super.super.config.seg_size, iface->tm.mp.num_strides);
 }
 
 ucs_status_t uct_rc_mlx5_init_rx_tm(uct_rc_mlx5_iface_common_t *iface,
@@ -696,75 +741,33 @@ ucs_status_t uct_rc_mlx5_init_rx_tm(uct_rc_mlx5_iface_common_t *iface,
 {
     uct_ib_md_t *md = uct_ib_iface_md(&iface->super.super);
     ucs_status_t status;
-    int UCS_V_UNUSED max_wr;
+    int max_wr;
 
-    uct_rc_mlx5_init_rx_tm_common(iface, rndv_hdr_len);
+    uct_rc_mlx5_init_rx_tm_common(iface, config, rndv_hdr_len);
+    max_wr = uct_ib_mlx5_srq_max_wrs(config->super.rx.queue_len,
+                                     iface->tm.mp.num_strides);
+
+    srq_attr->pd                  = md->pd;
+    srq_attr->cq                  = iface->super.super.cq[UCT_IB_DIR_RX];
+    srq_attr->tm_cap.max_num_tags = iface->tm.num_tags;
 
 #if HAVE_DECL_IBV_EXP_CREATE_SRQ
     /* Create TM-capable XRQ */
     if (UCT_RC_MLX5_MP_ENABLED(iface)) {
-        unsigned log_num_strides = ucs_ilog2(iface->tm.mp.num_strides);
-
-        ucs_assert_always(uct_ib_mtu_value(uct_ib_iface_port_attr(&(iface)->super.super)->active_mtu) ==
-                          iface->super.super.config.seg_size);
-        ucs_assert_always(IBV_DEVICE_MP_CAPS(&md->dev, min_single_wqe_log_num_of_strides) <=
-                          log_num_strides);
-
-        srq_init_attr->comp_mask               |= IBV_EXP_CREATE_SRQ_MP_WR;
-        srq_init_attr->mp_wr.log_num_of_strides = log_num_strides;
-        srq_init_attr->mp_wr.log_stride_size    = ucs_ilog2(iface->super.super.config.seg_size);
-        max_wr = ucs_max(IBV_DEVICE_MIN_UWQ_POST,
-                         config->super.rx.queue_len/iface->tm.mp.num_strides);
-
-        status = uct_iface_mpool_init(&iface->super.super.super,
-                                      &iface->tm.mp.tx_mp,
-                                      sizeof(uct_rc_iface_send_desc_t) +
-                                      UCT_RC_MLX5_TAG_BCOPY_MAX,
-                                      sizeof(uct_rc_iface_send_desc_t),
-                                      UCS_SYS_CACHE_LINE_SIZE,
-                                      &config->super.tx.mp,
-                                      iface->super.config.tx_qp_len,
-                                      uct_rc_iface_send_desc_init,
-                                      "tag_eager_send_desc");
-        if (status != UCS_OK) {
-            return status;
-        }
-
-        status = ucs_mpool_init(&iface->tm.mp.rx_meta_mp, 0,
-                                sizeof(uct_rc_mlx5_tm_mp_val_t), 0,
-                                UCS_SYS_CACHE_LINE_SIZE, 64, UINT_MAX,
-                                &uct_rc_mlx5_tm_mp_mpool_ops,
-                                "mp-rx-meta-data");
-        if (status != UCS_OK) {
-            ucs_mpool_cleanup(&iface->tm.mp.tx_mp, 0);
-            return status;
-        }
-
-        kh_init_inplace(uct_rc_mlx5_tm_mp_hash, &iface->tm.mp.hash);
-
-        /* Redefine tag eager thresholds */
-        iface->tm.max_zcopy = uct_ib_iface_port_attr(&iface->super.super)->max_msg_sz;
-        iface->tm.max_bcopy = UCT_RC_MLX5_TAG_BCOPY_MAX;
-
-        ucs_debug("Multi-Packet WQ config: stride size %d, WQEs %d, strides per WQE %d",
-                  iface->super.super.config.seg_size, max_wr, iface->tm.mp.num_strides);
-    } else {
-        max_wr = ucs_max(IBV_DEVICE_MIN_UWQ_POST, config->super.rx.queue_len);
+        srq_attr->comp_mask               |= IBV_EXP_CREATE_SRQ_MP_WR;
+        srq_attr->mp_wr.log_num_of_strides = ucs_ilog2(iface->tm.mp.num_strides);
+        srq_attr->mp_wr.log_stride_size    = ucs_ilog2(iface->super.super.config.seg_size);
     }
 
-    srq_init_attr->base.attr.max_sge   = iface->tm.mp.num_strides;
-    srq_init_attr->base.attr.max_wr    = max_wr;
-    srq_init_attr->base.attr.srq_limit = 0;
-    srq_init_attr->base.srq_context    = iface;
-    srq_init_attr->srq_type            = IBV_EXP_SRQT_TAG_MATCHING;
-    srq_init_attr->pd                  = md->pd;
-    srq_init_attr->cq                  = iface->super.super.cq[UCT_IB_DIR_RX];
-    srq_init_attr->tm_cap.max_num_tags = iface->tm.num_tags;
+    srq_attr->base.attr.max_sge   = iface->tm.mp.num_strides;
+    srq_attr->base.attr.max_wr    = max_wr;
+    srq_attr->base.attr.srq_limit = 0;
+    srq_attr->base.srq_context    = iface;
+    srq_attr->srq_type            = IBV_EXP_SRQT_TAG_MATCHING;
 
     uct_rc_mlx5_iface_tm_set_cmd_qp_len(iface);
     srq_attr->tm_cap.max_ops      = iface->tm.cmd_qp_len;
-    srq_attr->comp_mask          |= IBV_EXP_CREATE_SRQ_CQ |
-                                    IBV_EXP_CREATE_SRQ_TM;
+    srq_attr->comp_mask          |= IBV_EXP_CREATE_SRQ_CQ | IBV_EXP_CREATE_SRQ_TM;
 
     iface->rx.srq.verbs.srq = ibv_exp_create_srq(md->dev.ibv_context, srq_attr);
     if (iface->rx.srq.verbs.srq == NULL) {
@@ -776,20 +779,16 @@ ucs_status_t uct_rc_mlx5_init_rx_tm(uct_rc_mlx5_iface_common_t *iface,
     iface->super.rx.srq.quota = srq_attr->base.attr.max_wr;
 #elif HAVE_DECL_IBV_CREATE_SRQ_EX
     srq_attr->attr.max_sge        = 1;
-    srq_attr->attr.max_wr         = ucs_max(UCT_IB_MLX5_XRQ_MIN_UWQ_POST,
-                                            config->super.rx.queue_len);
+    srq_attr->attr.max_wr         = max_wr;
     srq_attr->attr.srq_limit      = 0;
     srq_attr->srq_context         = iface;
     srq_attr->srq_type            = IBV_SRQT_TM;
-    srq_attr->pd                  = md->pd;
-    srq_attr->cq                  = iface->super.super.cq[UCT_IB_DIR_RX];
-    srq_attr->tm_cap.max_num_tags = iface->tm.num_tags;
 
     uct_rc_mlx5_iface_tm_set_cmd_qp_len(iface);
     srq_attr->tm_cap.max_ops      = iface->tm.cmd_qp_len;
     srq_attr->comp_mask          |= IBV_SRQ_INIT_ATTR_TYPE |
-                                    IBV_SRQ_INIT_ATTR_PD |
-                                    IBV_SRQ_INIT_ATTR_CQ |
+                                    IBV_SRQ_INIT_ATTR_PD   |
+                                    IBV_SRQ_INIT_ATTR_CQ   |
                                     IBV_SRQ_INIT_ATTR_TM;
 
     iface->rx.srq.verbs.srq = ibv_create_srq_ex(md->dev.ibv_context, srq_attr);

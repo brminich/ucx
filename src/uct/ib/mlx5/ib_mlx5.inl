@@ -53,6 +53,12 @@ uct_ib_mlx5_gid_from_cqe(struct mlx5_cqe64* cqe)
     return UCS_PTR_BYTE_OFFSET(cqe, -40);
 }
 
+static UCS_F_ALWAYS_INLINE int
+uct_ib_mlx5_srq_max_wrs(int rxq_len, int num_sge)
+{
+    return ucs_max(rxq_len/num_sge, UCT_IB_MLX5_XRQ_MIN_UWQ_POST);
+}
+
 static UCS_F_ALWAYS_INLINE struct mlx5_cqe64*
 uct_ib_mlx5_poll_cq(uct_ib_iface_t *iface, uct_ib_mlx5_cq_t *cq)
 {

@@ -347,6 +347,9 @@ static void uct_rc_mlx5_iface_preinit(uct_rc_mlx5_iface_common_t *iface, uct_md_
 
     iface->tm.enabled = mlx5_config->tm.enable && (init_attr->flags &
                                                    UCT_IB_TM_SUPPORTED);
+    ucs_warn("tm enabled %d, cfg %d flags %d, tmflag %d",
+             iface->tm.enabled,  mlx5_config->tm.enable,
+             init_attr->flags, UCT_IB_TM_SUPPORTED);
     if (!iface->tm.enabled) {
         goto out_tm_disabled;
     }
@@ -413,6 +416,8 @@ static void uct_rc_mlx5_iface_preinit(uct_rc_mlx5_iface_common_t *iface, uct_md_
         iface->tm.mp.num_strides = ucs_roundup_pow2(mlx5_config->tm.mp_num_strides);
     }
 
+    ucs_warn("Preinit: num_strides %d", iface->tm.mp.num_strides);
+
     /* TODO: Reconsider this threshold when have circular XRQ.
      * Now we have to keep a bitmask of stride descriptors usingi specific
      * uint16_t field of XRQ segment. */
@@ -446,6 +451,7 @@ uct_rc_mlx5_iface_init_rx(uct_rc_iface_t *rc_iface,
     struct ibv_srq_init_attr_ex srq_attr = {};
     ucs_status_t status;
 
+    ucs_warn("TME %d, devx %d ", UCT_RC_MLX5_TM_ENABLED(iface), md->flags & UCT_IB_MLX5_MD_FLAG_DEVX );
     if (UCT_RC_MLX5_TM_ENABLED(iface)) {
         if (md->flags & UCT_IB_MLX5_MD_FLAG_DEVX_RC_SRQ) {
             status = uct_rc_mlx5_devx_init_rx_tm(iface, rc_config, 0,
@@ -700,6 +706,8 @@ UCS_CLASS_INIT_FUNC(uct_rc_mlx5_iface_t,
     init_attr.tx_cq_len   = config->super.tx_cq_len;
     init_attr.qp_type     = IBV_QPT_RC;
 
+    ucs_warn("flags %d have tm %d dev flags %d",
+            IBV_DEVICE_TM_FLAGS(&md->super.dev), IBV_HW_TM, md->super.dev.dev_attr.tm_caps.capability_flags);
     if (IBV_DEVICE_TM_FLAGS(&md->super.dev)) {
         init_attr.flags  |= UCT_IB_TM_SUPPORTED;
     }
