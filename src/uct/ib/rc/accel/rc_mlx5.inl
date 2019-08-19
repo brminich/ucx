@@ -354,8 +354,14 @@ uct_rc_mlx5_iface_tm_common_data(uct_rc_mlx5_iface_common_t *iface,
         uct_rc_mlx5_iface_common_rx_inline(iface, NULL,
                                            UCT_RC_MLX5_IFACE_STAT_RX_INL_32,
                                            byte_len);
+  //      ucs_warn("INL32:Stride index = %d, wqe c %d, len %d (%d), hdr %p",
+    //             uct_ib_mlx5_cqe_stride_index(cqe), ntohs(cqe->wqe_counter),
+      //           byte_len, *byte_count, hdr);
     } else if (cqe->op_own & MLX5_INLINE_SCATTER_64) {
         hdr = cqe - 1;
+      //  ucs_warn("INL64:Stride index = %d, wqe c %d, len %d (%d), hdr %p",
+        //         uct_ib_mlx5_cqe_stride_index(cqe), ntohs(cqe->wqe_counter),
+          //       byte_len, *byte_count, hdr);
         uct_rc_mlx5_iface_common_rx_inline(iface, NULL,
                                            UCT_RC_MLX5_IFACE_STAT_RX_INL_64,
                                            byte_len);
@@ -364,6 +370,9 @@ uct_rc_mlx5_iface_tm_common_data(uct_rc_mlx5_iface_common_t *iface,
         hdr = (void*)be64toh(seg->dptr[uct_ib_mlx5_cqe_stride_index(cqe)].addr);
         VALGRIND_MAKE_MEM_DEFINED(hdr, byte_len);
         *flags |= UCT_CB_PARAM_FLAG_DESC;
+        ucs_warn("Stride index = %d, wqe c %d, len %d (%d), hdr %p",
+                 uct_ib_mlx5_cqe_stride_index(cqe), ntohs(cqe->wqe_counter),
+                 byte_len, *byte_count, hdr);
     }
 
     *byte_count = byte_len;
@@ -1246,7 +1255,8 @@ uct_rc_mlx5_iface_tag_handle_unexp(uct_rc_mlx5_iface_common_t *iface,
                                          status, ntohs(cqe->wqe_counter));
     } else {
         ucs_assertv_always(tmh->opcode == IBV_TMH_RNDV,
-                           "Unsupported packet arrived %d", tmh->opcode);
+                           "Unsupported packet arrived %d, app %d tag %zu",
+                           tmh->opcode, tmh->app_ctx, (size_t)tmh->tag);
         status = uct_rc_mlx5_handle_rndv(iface, tmh, tmh->tag, byte_len);
 
         uct_rc_mlx5_iface_unexp_consumed(iface, &iface->tm.rndv_desc, cqe,
@@ -1342,6 +1352,7 @@ uct_rc_mlx5_iface_common_poll_rx(uct_rc_mlx5_iface_common_t *iface,
                    ((flags & UCT_CB_PARAM_FLAG_FIRST) &&
                    !(flags & UCT_CB_PARAM_FLAG_MORE)));
 
+        ucs_warn("no tag with opcode %d", tmh->opcode);
         if (tmh->opcode == IBV_TMH_NO_TAG) {
             uct_rc_mlx5_iface_common_am_handler(iface, cqe,
                                                 (uct_rc_mlx5_hdr_t*)tmh,

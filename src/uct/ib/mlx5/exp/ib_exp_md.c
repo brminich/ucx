@@ -383,6 +383,11 @@ static ucs_status_t uct_ib_mlx5_exp_md_open(struct ibv_device *ibv_device,
     if (dev->dev_attr.tm_caps.capability_flags & IBV_EXP_TM_CAP_DC) {
         md->flags |= UCT_IB_MLX5_MD_FLAG_DC_TM;
     }
+
+    if (dev->dev_attr.mp_rq_capsdev->dev_attr.mp_rq_caps.supported_qps &
+        IBV_EXP_MP_RQ_SUP_TYPE_SRQ_TM)) {
+        md->flags |= UCT_IB_MLX5_MD_FLAG_MP_RQ;
+    }
 #endif
 
     if (UCT_IB_HAVE_ODP_IMPLICIT(&dev->dev_attr)) {

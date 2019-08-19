@@ -833,6 +833,7 @@ ucs_status_t uct_rc_mlx5_ep_tag_rndv_request(uct_ep_h tl_ep, uct_tag_t tag,
                      UCT_IB_MLX5_AM_MAX_SHORT(0), "tag_rndv_request");
     UCT_RC_CHECK_RES(&iface->super, &ep->super);
 
+
     uct_rc_mlx5_txqp_tag_inline_post(iface, IBV_QPT_RC, &ep->super.txqp,
                                      &ep->tx.wq, MLX5_OPCODE_SEND_IMM, header,
                                      header_length, NULL, tag, 0,

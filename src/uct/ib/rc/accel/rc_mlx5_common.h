@@ -36,9 +36,11 @@
 #    define IBV_TMH_NO_TAG                  IBV_EXP_TMH_NO_TAG
 #  endif
 #  define IBV_DEVICE_TM_CAPS(_dev, _field)  ((_dev)->dev_attr.tm_caps._field)
+#  define IBV_DEVICE_MP_MIN_LOG_NUM_STRIDES 3
 #else
 #  define IBV_TM_CAP_RC                     0
 #  define IBV_DEVICE_TM_CAPS(_dev, _field)  0
+#  define IBV_DEVICE_MP_MIN_LOG_NUM_STRIDES 0
 #endif
 
 #if HAVE_STRUCT_IBV_TM_CAPS_FLAGS
@@ -53,18 +55,15 @@
 #  define ibv_srq_init_attr_ex              ibv_exp_create_srq_attr
 #endif
 
-#if HAVE_DECL_IBV_EXP_MP_RQ_SUP_TYPE_SRQ_TM
-#  define IBV_DEVICE_MP_CAPS(_dev, _field)  ((_dev)->dev_attr.mp_rq_caps._field)
-#else
+#if !HAVE_DECL_IBV_EXP_MP_RQ_SUP_TYPE_SRQ_TM
 #  define IBV_EXP_MP_RQ_SUP_TYPE_SRQ_TM     0
-#  define IBV_DEVICE_MP_CAPS(_dev, _field)  0
 #endif
 
-#define UCT_RC_MLX5_OPCODE_FLAG_RAW   0x100
-#define UCT_RC_MLX5_OPCODE_FLAG_TM    0x200
-#define UCT_RC_MLX5_OPCODE_MASK       0xff
-#define UCT_RC_MLX5_TAG_BCOPY_MAX      131072
-#define UCT_RC_MLX5_MP_MAX_NUM_STRIDES 16
+#define UCT_RC_MLX5_OPCODE_FLAG_RAW         0x100
+#define UCT_RC_MLX5_OPCODE_FLAG_TM          0x200
+#define UCT_RC_MLX5_OPCODE_MASK             0xff
+#define UCT_RC_MLX5_TAG_BCOPY_MAX           131072
+#define UCT_RC_MLX5_MP_MAX_NUM_STRIDES      16
 
 #define UCT_RC_MLX5_CHECK_AM_ZCOPY(_id, _header_length, _length, _seg_size, _av_size) \
     UCT_CHECK_AM_ID(_id); \
@@ -335,6 +334,7 @@ typedef struct uct_rc_mlx5_iface_common {
         uint8_t                      enabled;
 
         struct {
+            int                      cyclic_xrq;
             unsigned                 num_strides;
             ucs_mpool_t              tx_mp;
             ucs_mpool_t              rx_meta_mp;
@@ -383,6 +383,7 @@ typedef struct uct_rc_mlx5_iface_common_config {
         unsigned               list_size;
         size_t                 seg_size;
         size_t                 mp_num_strides;
+        int                    cyclic_xrq;
     } tm;
     unsigned                   exp_backoff;
     uct_rc_mlx5_srq_topo_t     srq_topo;

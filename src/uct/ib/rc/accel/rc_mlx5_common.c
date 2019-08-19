@@ -58,6 +58,11 @@ ucs_config_field_t uct_rc_mlx5_common_config_table[] = {
    ucs_offsetof(uct_rc_mlx5_iface_common_config_t, tm.mp_num_strides),
                 UCS_CONFIG_TYPE_ULUNITS},
 
+  {"TM_MP_CYCLIC", "n",
+  "",
+   ucs_offsetof(uct_rc_mlx5_iface_common_config_t, tm.cyclic_xrq),
+                UCS_CONFIG_TYPE_BOOL},
+
   {"EXP_BACKOFF", "0",
    "Exponential Backoff Timeout Multiplier. ACK timeout will be multiplied \n"
    "by 2^EXP_BACKOFF every consecutive retry.",
@@ -508,6 +513,7 @@ ucs_status_t uct_rc_mlx5_handle_rndv(uct_rc_mlx5_iface_common_t *iface,
     rndv_usr_hdr     = (char*)tmh + tm_hdrs_len;
     rndv_usr_hdr_len = byte_len - tm_hdrs_len;
     rndv_data_len    = ntohl(rvh->len);
+    ucs_warn("uct: unexp rhdnv with %ld bytes", rndv_data_len);
 
     /* Private TMH data may contain the first bytes of the user header, so it
        needs to be copied before that. Thus, either RVH (rc) or RAVH (dc)
@@ -666,7 +672,6 @@ void uct_rc_mlx5_init_rx_tm_common(uct_rc_mlx5_iface_common_t *iface,
 {
     uct_ib_md_t *md       = uct_ib_iface_md(&iface->super.super);
     unsigned tmh_hdrs_len = sizeof(struct ibv_tmh) + rndv_hdr_len;
-    unsigned log_num_strides;
     ucs_status_t status;
 
     iface->tm.eager_desc.super.cb = uct_rc_mlx5_release_desc;
@@ -693,12 +698,8 @@ void uct_rc_mlx5_init_rx_tm_common(uct_rc_mlx5_iface_common_t *iface,
         return;
     }
 
-    log_num_strides = ucs_ilog2(iface->tm.mp.num_strides);
-
     ucs_assert_always(uct_ib_mtu_value(uct_ib_iface_port_attr(&(iface)->super.super)->active_mtu) ==
                       iface->super.super.config.seg_size);
-    ucs_assert_always(IBV_DEVICE_MP_CAPS(&md->dev, min_single_wqe_log_num_of_strides) <=
-                      log_num_strides);
 
     status = uct_iface_mpool_init(&iface->super.super.super,
                                   &iface->tm.mp.tx_mp,

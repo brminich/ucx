@@ -333,23 +333,21 @@ static ucs_status_t uct_rc_mlx5_iface_tag_recv_cancel(uct_iface_h tl_iface,
 }
 #endif
 
-static void uct_rc_mlx5_iface_preinit(uct_rc_mlx5_iface_common_t *iface, uct_md_h md,
+static void uct_rc_mlx5_iface_preinit(uct_rc_mlx5_iface_common_t *iface, uct_md_h tl_md,
                                       uct_rc_iface_common_config_t *rc_config,
                                       uct_rc_mlx5_iface_common_config_t *mlx5_config,
                                       const uct_iface_params_t *params,
                                       uct_ib_iface_init_attr_t *init_attr)
 {
 #if IBV_HW_TM
-    uct_ib_device_t UCS_V_UNUSED *dev = &ucs_derived_of(md, uct_ib_md_t)->dev;
+    uct_ib_mlx5_md_t *md              = ucs_derived_of(tl_md, uct_ib_mlx5_md_t);
+    uct_ib_device_t UCS_V_UNUSED *dev = &md->super.dev;
     struct ibv_tmh tmh;
-    int log_num_strides, mtu;
+    int mtu;
     ucs_status_t status;
 
     iface->tm.enabled = mlx5_config->tm.enable && (init_attr->flags &
                                                    UCT_IB_TM_SUPPORTED);
-    ucs_warn("tm enabled %d, cfg %d flags %d, tmflag %d",
-             iface->tm.enabled,  mlx5_config->tm.enable,
-             init_attr->flags, UCT_IB_TM_SUPPORTED);
     if (!iface->tm.enabled) {
         goto out_tm_disabled;
     }
@@ -392,18 +390,17 @@ static void uct_rc_mlx5_iface_preinit(uct_rc_mlx5_iface_common_t *iface, uct_md_
     init_attr->seg_size  = ucs_max(mlx5_config->tm.seg_size,
                                    rc_config->super.seg_size);
 
-    if (!(IBV_DEVICE_MP_CAPS(dev, supported_qps) & IBV_EXP_MP_RQ_SUP_TYPE_SRQ_TM)) {
+    if (!(md->flags & UCT_IB_MLX5_MD_FLAG_MP_RQ)) {
         goto out_mp_disabled;
     }
 
-    log_num_strides = IBV_DEVICE_MP_CAPS(dev, min_single_wqe_log_num_of_strides);
-    if (mlx5_config->tm.mp_num_strides < UCS_BIT(log_num_strides)) {
+    if (mlx5_config->tm.mp_num_strides < UCS_BIT(IBV_DEVICE_MP_MIN_LOG_NUM_STRIDES)) {
         ucs_debug("Minimal strides number is %lu, disabling MP XRQ",
-                  UCS_BIT(log_num_strides));
+                  UCS_BIT(IBV_DEVICE_MP_MIN_LOG_NUM_STRIDES));
         goto out_mp_disabled;
     }
 
-    status = uct_ib_device_mtu(params->mode.device.dev_name, md, &mtu);
+    status = uct_ib_device_mtu(params->mode.device.dev_name, tl_md, &mtu);
     if (status != UCS_OK) {
         ucs_warn("Failed to get port MTU: %s, disabling MP XRQ",
                  ucs_status_string(status));
@@ -411,7 +408,7 @@ static void uct_rc_mlx5_iface_preinit(uct_rc_mlx5_iface_common_t *iface, uct_md_
     }
 
     if (mlx5_config->tm.mp_num_strides == UCS_ULUNITS_AUTO) {
-        iface->tm.mp.num_strides = UCS_BIT(log_num_strides);
+        iface->tm.mp.num_strides = UCS_BIT(IBV_DEVICE_MP_MIN_LOG_NUM_STRIDES);
     } else {
         iface->tm.mp.num_strides = ucs_roundup_pow2(mlx5_config->tm.mp_num_strides);
     }
@@ -451,7 +448,6 @@ uct_rc_mlx5_iface_init_rx(uct_rc_iface_t *rc_iface,
     struct ibv_srq_init_attr_ex srq_attr = {};
     ucs_status_t status;
 
-    ucs_warn("TME %d, devx %d ", UCT_RC_MLX5_TM_ENABLED(iface), md->flags & UCT_IB_MLX5_MD_FLAG_DEVX );
     if (UCT_RC_MLX5_TM_ENABLED(iface)) {
         if (md->flags & UCT_IB_MLX5_MD_FLAG_DEVX_RC_SRQ) {
             status = uct_rc_mlx5_devx_init_rx_tm(iface, rc_config, 0,
@@ -572,6 +568,7 @@ UCS_CLASS_INIT_FUNC(uct_rc_mlx5_iface_common_t,
     self->rx.srq.type                = UCT_IB_MLX5_OBJ_TYPE_LAST;
     self->rx.srq.topo                = uct_rc_mlx5_iface_srq_topo(self, md, mlx5_config);
     self->tm.cmd_wq.super.super.type = UCT_IB_MLX5_OBJ_TYPE_LAST;
+    self->tm.mp.cyclic_xrq = mlx5_config->tm.cyclic_xrq;
 
     UCS_CLASS_CALL_SUPER_INIT(uct_rc_iface_t, ops, md, worker, params,
                               rc_config, init_attr);
@@ -706,8 +703,6 @@ UCS_CLASS_INIT_FUNC(uct_rc_mlx5_iface_t,
     init_attr.tx_cq_len   = config->super.tx_cq_len;
     init_attr.qp_type     = IBV_QPT_RC;
 
-    ucs_warn("flags %d have tm %d dev flags %d",
-            IBV_DEVICE_TM_FLAGS(&md->super.dev), IBV_HW_TM, md->super.dev.dev_attr.tm_caps.capability_flags);
     if (IBV_DEVICE_TM_FLAGS(&md->super.dev)) {
         init_attr.flags  |= UCT_IB_TM_SUPPORTED;
     }

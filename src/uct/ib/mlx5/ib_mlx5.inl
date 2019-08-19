@@ -31,7 +31,11 @@ uct_ib_mlx5_cqe_stride_index(struct mlx5_cqe64* cqe)
 #if HAVE_DECL_IBV_EXP_MP_RQ_SUP_TYPE_SRQ_TM
     return ntohs(cqe->ib_stride_index);
 #else
-    return 0;
+    uint16_t *stride;
+    stride = (uint16_t*)&cqe->rsvd20[2];
+    //ucs_warn("%d %d %d %d",cqe->rsvd20[0],cqe->rsvd20[1],cqe->rsvd20[2],cqe->rsvd20[3]);
+    return ntohs(*stride);
+//    return 0;
 #endif
 }
 
