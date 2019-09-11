@@ -99,7 +99,7 @@ uct_rc_mlx5_devx_init_rx_tm(uct_rc_mlx5_iface_common_t *iface,
         ucs_warn("log_num_of_strides %d,  twos_comp_log_num_of_strides %d",log_num_of_strides, twos_comp_log_num_of_strides);
             UCT_IB_MLX5DV_SET(wq, wq, wq_type, 2);
         }
-        UCT_IB_MLX5DV_SET(wq, wq, log_wqe_num_of_strides,twos_comp_log_num_of_strides);
+        UCT_IB_MLX5DV_SET(wq, wq, log_wqe_num_of_strides, twos_comp_log_num_of_strides);
         UCT_IB_MLX5DV_SET(wq, wq, log_wqe_stride_size,
                           (ucs_ilog2(iface->super.super.config.seg_size) - 6));
     }
