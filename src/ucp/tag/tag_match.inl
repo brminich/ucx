@@ -217,6 +217,8 @@ ucp_request_recv_offload_data(ucp_request_t *req, const void *data, size_t lengt
                               size_t offset, unsigned recv_flags, int *last)
 {
     *last = recv_flags & UCP_RECV_DESC_FLAG_EAGER_LAST;
+    ucs_warn("Offload unexp data, %ld, last %d, offset %ld, req->status %d",
+            length, *last, offset, req->status);
     if (ucs_unlikely(req->status != UCS_OK)) {
        return;
     }

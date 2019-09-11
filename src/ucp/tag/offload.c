@@ -613,6 +613,8 @@ ucs_status_t ucp_tag_offload_start_rndv(ucp_request_t *sreq)
     /* should be set by ucp_tag_send_req_init() */
     ucs_assert(sreq->send.lane == ucp_ep_get_tag_lane(ep));
 
+    ucs_fatal("Start RNDV OFF");
+
     if (UCP_DT_IS_CONTIG(sreq->send.datatype)) {
         status = ucp_request_send_buffer_reg_lane(sreq, sreq->send.lane);
         if (status != UCS_OK) {

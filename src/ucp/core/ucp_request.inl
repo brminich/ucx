@@ -522,6 +522,7 @@ ucp_recv_desc_release(ucp_recv_desc_t *rdesc)
     ucs_trace_req("release receive descriptor %p", rdesc);
     if (ucs_unlikely(rdesc->flags & UCP_RECV_DESC_FLAG_UCT_DESC)) {
         /* uct desc is slowpath */
+        ucs_warn("release %p, privken %d hdroom %d", UCS_PTR_BYTE_OFFSET(rdesc, -(UCP_WORKER_HEADROOM_PRIV_SIZE-rdesc->priv_length)), rdesc->priv_length, UCP_WORKER_HEADROOM_PRIV_SIZE);
         uct_iface_release_desc(UCS_PTR_BYTE_OFFSET(rdesc,
                                                    -(UCP_WORKER_HEADROOM_PRIV_SIZE -
                                                      rdesc->priv_length)));

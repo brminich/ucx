@@ -145,9 +145,11 @@ void ucp_tag_frag_list_process_queue(ucp_tag_match_t *tm, ucp_request_t *req,
     ucs_status_t status;
     khiter_t iter;
     int ret;
+    int cnt = 0;
 
     iter   = kh_put(ucp_tag_frag_hash, &tm->frag_hash, msg_id, &ret);
     matchq = &kh_value(&tm->frag_hash, iter);
+    ucs_warn("Process queue, ret %d", ret);
     if (ret == 0) {
         status = UCS_INPROGRESS;
         ucs_assert(ucp_tag_frag_match_is_unexp(matchq));
@@ -156,6 +158,8 @@ void ucp_tag_frag_list_process_queue(ucp_tag_match_t *tm, ucp_request_t *req,
             UCS_STATS_UPDATE_COUNTER(req->recv.worker->stats, counter_idx, 1);
             hdr    = (void*)(rdesc + 1);
             status = ucp_tag_recv_request_process_rdesc(req, rdesc, hdr->offset);
+            ucs_warn("Process rdesc N %d, status %d, rdesc flags %d",
+                     cnt++, status, rdesc->flags);
         }
         ucs_assert(ucs_queue_is_empty(&matchq->unexp_q));
 

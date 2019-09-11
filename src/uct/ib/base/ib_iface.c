@@ -203,6 +203,8 @@ ucs_status_t uct_ib_iface_recv_mpool_init(uct_ib_iface_t *iface,
                         config->rx.mp.max_bufs);
     }
 
+    ucs_error("RX buf init %d", iface->config.rx_payload_offset + iface->config.seg_size);
+
     return uct_iface_mpool_init(&iface->super, mp,
                                 iface->config.rx_payload_offset + iface->config.seg_size,
                                 iface->config.rx_hdr_offset,
@@ -782,6 +784,11 @@ UCS_CLASS_INIT_FUNC(uct_ib_iface_t, uct_ib_iface_ops_t *ops, uct_md_h md,
                                       init_attr->rx_hdr_len;
     self->config.rx_headroom_offset = self->config.rx_payload_offset -
                                       rx_headroom;
+    ucs_warn("IB: headromm %ld, rx_hdr %d, pld offset %d, headroom offset %d, hdr offset %d",
+                                          rx_headroom, init_attr->rx_hdr_len,
+                                          self->config.rx_payload_offset,
+                                          self->config.rx_headroom_offset,
+                                          self->config.rx_hdr_offset);
     self->config.seg_size           = init_attr->seg_size;
     self->config.tx_max_poll        = config->tx.max_poll;
     self->config.rx_max_poll        = config->rx.max_poll;
@@ -945,6 +952,7 @@ int uct_ib_iface_prepare_rx_wrs(uct_ib_iface_t *iface, ucs_mpool_t *mp,
         wrs[count].ibwr.next    = &wrs[count + 1].ibwr;
         ++count;
     }
+    ucs_error("Init Rx len %d", iface->config.rx_payload_offset + iface->config.seg_size);
 
     if (count > 0) {
         wrs[count - 1].ibwr.next = NULL;

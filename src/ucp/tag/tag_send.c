@@ -33,9 +33,9 @@ ucp_tag_get_rndv_threshold(const ucp_request_t *req, size_t count,
              * not support multi-packet eager protocols. */
             return 1;
         }
-        /* Fall through */
-    case UCP_DATATYPE_CONTIG:
         return ucs_min(rndv_rma_thresh, rndv_am_thresh);
+    case UCP_DATATYPE_CONTIG:
+        return rndv_rma_thresh;
     case UCP_DATATYPE_GENERIC:
         return rndv_am_thresh;
     default:
@@ -109,13 +109,13 @@ ucp_tag_send_req(ucp_request_t *req, size_t dt_count,
     if (req->flags & UCP_REQUEST_FLAG_COMPLETED) {
         ucs_trace_req("releasing send request %p, returning status %s", req,
                       ucs_status_string(status));
-        if (enable_zcopy) {
+        if (enable_zcopy && !(req->flags & UCP_REQUEST_DEBUG_FLAG_EXTERNAL)) {
             ucp_request_put(req);
         }
         return UCS_STATUS_PTR(status);
     }
 
-    if (enable_zcopy) {
+    if (enable_zcopy && !(req->flags & UCP_REQUEST_DEBUG_FLAG_EXTERNAL)) {
         ucp_request_set_callback(req, send.cb, cb)
     }
 
@@ -252,12 +252,14 @@ UCS_PROFILE_FUNC(ucs_status_t, ucp_tag_send_nbr,
         return status;
     }
 
-    ucp_tag_send_req_init(req, ep, buffer, datatype, count, tag, 0);
+    ucp_tag_send_req_init(req, ep, buffer, datatype, count, tag,
+                          UCP_REQUEST_DEBUG_FLAG_EXTERNAL);
 
     ret = ucp_tag_send_req(req, count, &ucp_ep_config(ep)->tag.eager,
                            ucp_ep_config(ep)->tag.rndv_send_nbr.rma_thresh,
                            ucp_ep_config(ep)->tag.rndv_send_nbr.am_thresh,
-                           NULL, ucp_ep_config(ep)->tag.proto, 0);
+                           NULL, ucp_ep_config(ep)->tag.proto,
+                           ep->worker->context->config.ext.nbr_zcopy);
 
     UCP_WORKER_THREAD_CS_EXIT_CONDITIONAL(ep->worker);
 

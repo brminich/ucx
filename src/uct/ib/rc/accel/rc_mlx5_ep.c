@@ -756,6 +756,7 @@ ssize_t uct_rc_mlx5_ep_tag_eager_bcopy(uct_ep_h tl_ep, uct_tag_t tag,
 
     UCT_RC_MLX5_IFACE_GET_TM_BCOPY_DESC(&iface->super, iface->tm.bcopy_mp,
                                         desc, tag, app_ctx, pack_cb, arg, length);
+   // ucs_warn("uct_rc_mlx5_ep_tag_eager_bcopy, len %ld", length);
 
     uct_rc_mlx5_txqp_bcopy_post(iface, &ep->super.txqp, &ep->tx.wq,
                                 opcode, sizeof(struct ibv_tmh) + length,
@@ -787,6 +788,8 @@ ucs_status_t uct_rc_mlx5_ep_tag_eager_zcopy(uct_ep_h tl_ep, uct_tag_t tag,
 
     UCT_TL_EP_STAT_OP(&ep->super.super, TAG, ZCOPY,
                       uct_iov_total_length(iov, iovcnt));
+//    ucs_warn("uct_rc_mlx5_ep_tag_eager_zcopy, len %ld",
+  //           uct_iov_total_length(iov, iovcnt));
 
     return uct_rc_mlx5_ep_zcopy_post(ep, opcode|UCT_RC_MLX5_OPCODE_FLAG_TM,
                                      iov, iovcnt, 0, "", 0, 0, 0,

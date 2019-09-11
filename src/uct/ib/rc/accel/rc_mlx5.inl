@@ -99,10 +99,18 @@ uct_rc_mlx5_iface_release_srq_seg(uct_rc_mlx5_iface_common_t *iface,
              udesc = udesc - iface->super.super.config.rx_hdr_offset + offset;
              uct_recv_desc(udesc) = release_desc;
              seg->srq.ptr_mask   &= ~UCS_BIT(stride_idx);
+             //ucs_warn("notok release, streides %d, udesc %p (%p), hdr_offset %d offs %d, headroom %d",
+             //seg->srq.strides, udesc, (void*)be64toh(seg->dptr[stride_idx].addr),
+             //iface->super.super.config.rx_hdr_offset,
+             //offset, iface->super.super.config.rx_headroom_offset);
         }
+        //ucs_warn("Release, str idx %d, wqecnt %d, wqestrides %d maSK 0x%x, stat %d",
+         //         stride_idx, wqe_ctr, seg->srq.strides, seg->srq.ptr_mask, status);
         if (--seg->srq.strides) {
             return;
         }
+       // ucs_error("ALL Release, str idx %d, wqecnt %d, wqestrides %d, mask 0x%x",
+         //         stride_idx, wqe_ctr, seg->srq.strides, seg->srq.ptr_mask);
         seg->srq.strides = iface->tm.mp.num_strides;
         seg_free         = (seg->srq.ptr_mask == UCS_MASK(iface->tm.mp.num_strides));
     } else {
@@ -412,8 +420,8 @@ uct_rc_mlx5_iface_common_am_handler(uct_rc_mlx5_iface_common_t *iface,
     }
 
     uct_rc_mlx5_iface_release_srq_seg(iface, seg, cqe, wqe_ctr, status,
-                                      iface->super.super.config.rx_headroom_offset,
-                                      &iface->super.super.release_desc);
+                                      iface->tm.am_desc.offset,
+                                      &iface->tm.am_desc.super);
 }
 
 static UCS_F_ALWAYS_INLINE uint8_t
@@ -1182,6 +1190,11 @@ uct_rc_mlx5_iface_unexp_consumed(uct_rc_mlx5_iface_common_t *iface,
     uct_rc_mlx5_iface_release_srq_seg(iface, seg, cqe, wqe_ctr,
                                       status, release->offset, &release->super);
 
+    if (UCT_RC_MLX5_MP_ENABLED(iface) &&
+        !(ntohl(cqe->byte_cnt) & UCT_RC_MLX5_MP_RQ_LAST_MSG_FIELD)) {
+      return;
+    }
+
     if (ucs_unlikely(!(++iface->tm.unexpected_cnt % IBV_DEVICE_MAX_UNEXP_COUNT))) {
         uct_rc_mlx5_iface_common_post_srq_op(&iface->tm.cmd_wq, 0,
                                              UCT_RC_MLX5_TM_OPCODE_NOP, 0,
@@ -1202,18 +1215,27 @@ uct_rc_mlx5_iface_tag_handle_unexp(uct_rc_mlx5_iface_common_t *iface,
     ucs_status_t   status;
     unsigned       flags;
     uint64_t       *context;
+    int            headroom;
+    static uct_rc_mlx5_release_desc_t release;
 
     tmh = uct_rc_mlx5_iface_tm_common_data(iface, cqe, &byte_len, &flags,
                                            has_ep, &context);
 
+    ucs_warn("Got unexp %s, tm op %d, len %d, wqe_cnt %d",
+            (flags & UCT_CB_PARAM_FLAG_FIRST) ? "first" : "",
+            tmh->opcode, byte_len, ntohs(cqe->wqe_counter) );
     if (ucs_unlikely(!(flags & UCT_CB_PARAM_FLAG_FIRST))) {
-        /* Either middle or last fragment. Can pass zero tag and imm_data,
+        headroom = iface->super.super.config.rx_payload_offset -
+            iface->super.super.config.rx_headroom_offset;
+        release.offset   = iface->super.super.config.rx_hdr_offset - headroom;
+        release.super.cb = iface->tm.eager_desc.super.cb;
+            /* Either middle or last fragment. Can pass zero tag and imm_data,
          * because they were already provided in the first fragment. */
         status  = iface->tm.eager_unexp.cb(iface->tm.eager_unexp.arg, tmh,
                                            byte_len, flags, 0ul, 0ul, context);
 
-        uct_rc_mlx5_iface_unexp_consumed(iface, &iface->tm.eager_desc, cqe,
-                                         status, ntohs(cqe->wqe_counter));
+        uct_rc_mlx5_iface_unexp_consumed(iface, &release,
+                                         cqe, status, ntohs(cqe->wqe_counter));
         return;
     }
 

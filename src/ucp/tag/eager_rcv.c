@@ -150,7 +150,8 @@ UCS_PROFILE_FUNC(ucs_status_t, ucp_eager_first_handler,
 static UCS_F_ALWAYS_INLINE ucs_status_t
 ucp_eager_common_middle_handler(ucp_worker_t *worker, ucp_tag_frag_match_t *matchq,
                                 khiter_t iter, void *data, size_t length,
-                                unsigned tl_flags, uint16_t flags)
+                                unsigned tl_flags, uint16_t flags,
+                                uint16_t priv_length)
 {
     ucp_eager_middle_hdr_t *hdr = data;
     ucp_recv_desc_t *rdesc;
@@ -161,8 +162,10 @@ ucp_eager_common_middle_handler(ucp_worker_t *worker, ucp_tag_frag_match_t *matc
     if (ucp_tag_frag_match_is_unexp(matchq)) {
         /* add new received descriptor to the queue */
         status = ucp_recv_desc_init(worker, data, length, 0, tl_flags,
-                                    sizeof(*hdr), UCP_RECV_DESC_FLAG_EAGER, 0,
-                                    &rdesc);
+                                    sizeof(*hdr), flags,
+                                    priv_length, &rdesc);
+        ucs_warn("middle handler, length %ld, offset %ld, status %d",
+                length, hdr->offset, status);
         if (!UCS_STATUS_IS_ERR(status)) {
             ucp_tag_frag_match_add_unexp(matchq, rdesc, hdr->offset);
         }
@@ -204,7 +207,7 @@ UCS_PROFILE_FUNC(ucs_status_t, ucp_eager_middle_handler,
     }
 
     return ucp_eager_common_middle_handler(worker, matchq, iter, data, length,
-                                           am_flags, UCP_RECV_DESC_FLAG_EAGER);
+                                           am_flags, UCP_RECV_DESC_FLAG_EAGER, 0);
 }
 
 UCS_PROFILE_FUNC(ucs_status_t, ucp_eager_sync_only_handler,
@@ -332,8 +335,8 @@ UCS_PROFILE_FUNC(ucs_status_t, ucp_tag_offload_unexp_eager,
             flags |= UCP_RECV_DESC_FLAG_EAGER_LAST;
         }
         return ucp_eager_common_middle_handler(worker, frag, iter, m_hdr,
-                                               length + sizeof(m_hdr),
-                                               tl_flags, flags);
+                                               length + sizeof(*m_hdr),
+                                               tl_flags, flags, sizeof(*m_hdr));
     } else if (tl_flags & UCT_CB_PARAM_FLAG_MORE) {
         /* First part of the fragmented message. Pass message id back to UCT,
          * so it will be provided with the rest of message fragments. */

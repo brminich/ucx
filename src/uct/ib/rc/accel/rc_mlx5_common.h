@@ -62,7 +62,7 @@
 #define UCT_RC_MLX5_OPCODE_FLAG_RAW         0x100
 #define UCT_RC_MLX5_OPCODE_FLAG_TM          0x200
 #define UCT_RC_MLX5_OPCODE_MASK             0xff
-#define UCT_RC_MLX5_TAG_BCOPY_MAX           131072
+#define UCT_RC_MLX5_TAG_BCOPY_MAX           131072 /* TODO: Revise */
 #define UCT_RC_MLX5_MP_MAX_NUM_STRIDES      16
 
 #define UCT_RC_MLX5_CHECK_AM_ZCOPY(_id, _header_length, _length, _seg_size, _av_size) \
@@ -270,6 +270,7 @@ typedef struct uct_rc_mlx5_tmh_priv_data {
 } UCS_S_PACKED uct_rc_mlx5_tmh_priv_data_t;
 
 
+void uct_rc_mlx5_release_desc(uct_recv_desc_t *self, void *desc);
 typedef struct uct_rc_mlx5_release_desc {
     uct_recv_desc_t             super;
     unsigned                    offset;
@@ -353,6 +354,7 @@ typedef struct uct_rc_mlx5_iface_common {
 
         uct_rc_mlx5_release_desc_t  eager_desc;
         uct_rc_mlx5_release_desc_t  rndv_desc;
+        uct_rc_mlx5_release_desc_t  am_desc;
         UCS_STATS_NODE_DECLARE(stats);
     } tm;
 #if HAVE_IBV_DM

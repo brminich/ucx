@@ -153,6 +153,7 @@ out:
         *srq->db = htonl(srq->sw_pi);
         ucs_assert(uct_ib_mlx5_srq_get_wqe(srq, srq->mask)->srq.next_wqe_index == 0);
     }
+    ucs_warn("POSTED, cnt %d, avail %d", count, rc_iface->rx.srq.available);
     return count;
 }
 
@@ -479,7 +480,7 @@ void uct_rc_mlx5_destroy_srq(uct_ib_mlx5_srq_t *srq)
 }
 
 #if IBV_HW_TM
-static void uct_rc_mlx5_release_desc(uct_recv_desc_t *self, void *desc)
+void uct_rc_mlx5_release_desc(uct_recv_desc_t *self, void *desc)
 {
     uct_rc_mlx5_release_desc_t *release = ucs_derived_of(self,
                                                          uct_rc_mlx5_release_desc_t);
@@ -675,13 +676,20 @@ void uct_rc_mlx5_init_rx_tm_common(uct_rc_mlx5_iface_common_t *iface,
     ucs_status_t status;
 
     iface->tm.eager_desc.super.cb = uct_rc_mlx5_release_desc;
-    iface->tm.eager_desc.offset   = sizeof(struct ibv_tmh)
-                                    - sizeof(uct_rc_mlx5_hdr_t)
-                                    + iface->super.super.config.rx_headroom_offset;
-
     iface->tm.rndv_desc.super.cb  = uct_rc_mlx5_release_desc;
-    iface->tm.rndv_desc.offset    = iface->tm.eager_desc.offset + rndv_hdr_len;
 
+    if (UCT_RC_MLX5_MP_ENABLED(iface)) {
+        iface->tm.eager_desc.offset   = sizeof(struct ibv_tmh)
+                                        + iface->super.super.config.rx_headroom_offset;
+        iface->tm.am_desc.offset     += sizeof(uct_rc_mlx5_hdr_t);
+
+    } else {
+        iface->tm.eager_desc.offset   = sizeof(struct ibv_tmh)
+            - sizeof(uct_rc_mlx5_hdr_t)
+            + iface->super.super.config.rx_headroom_offset;
+    }
+
+    iface->tm.rndv_desc.offset    = iface->tm.eager_desc.offset + rndv_hdr_len;
     ucs_assert(IBV_DEVICE_TM_CAPS(&md->dev, max_rndv_hdr_size) >= tmh_hdrs_len);
     iface->tm.max_rndv_data       = IBV_DEVICE_TM_CAPS(&md->dev, max_rndv_hdr_size) -
                                     tmh_hdrs_len;
@@ -864,6 +872,7 @@ static void uct_rc_mlx5_tag_query(uct_rc_mlx5_iface_common_t *iface,
     iface_attr->cap.tag.recv.min_recv        = 0;
     iface_attr->cap.tag.recv.max_outstanding = iface->tm.num_tags;
     iface_attr->cap.tag.eager.max_bcopy      = iface->tm.max_bcopy - eager_hdr_size;
+    //iface_attr->cap.tag.eager.max_bcopy      = iface->tm.max_zcopy - eager_hdr_size;
     iface_attr->cap.tag.eager.max_zcopy      = iface->tm.max_zcopy - eager_hdr_size;
 #endif
 }

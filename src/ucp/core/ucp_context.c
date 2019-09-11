@@ -150,6 +150,10 @@ static ucs_config_field_t ucp_config_table[] = {
    "Maximal number of devices on which a rendezvous operation may be executed in parallel",
    ucs_offsetof(ucp_config_t, ctx.max_rndv_lanes), UCS_CONFIG_TYPE_UINT},
 
+  {"NBR_ZCOPY", "0",
+   "",
+   ucs_offsetof(ucp_config_t, ctx.nbr_zcopy), UCS_CONFIG_TYPE_UINT},
+
   {"RNDV_SCHEME", "auto",
    "Communication scheme in RNDV protocol.\n"
    " get_zcopy - use get_zcopy scheme in RNDV protocol.\n"

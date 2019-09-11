@@ -136,6 +136,8 @@ ucs_status_t ucp_tag_send_start_rndv(ucp_request_t *sreq)
         return status;
     }
 
+    ucs_fatal("!!!");
+
     if (ucp_ep_is_tag_offload_enabled(ucp_ep_config(ep))) {
         status = ucp_tag_offload_start_rndv(sreq);
         if (status != UCS_OK) {

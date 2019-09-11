@@ -83,6 +83,7 @@ void uct_rc_mlx5_iface_check_rx_completion(uct_rc_mlx5_iface_common_t *iface,
                                           &iface->super.super.release_desc);
     } else {
         ucs_assert((ecqe->op_own >> 4) != MLX5_CQE_INVALID);
+        ucs_error("iface->super.rx.srq.available %d", iface->super.rx.srq.available );
         uct_ib_mlx5_check_completion(&iface->super.super, cq, cqe);
     }
 }
@@ -569,13 +570,18 @@ UCS_CLASS_INIT_FUNC(uct_rc_mlx5_iface_common_t,
     self->rx.srq.topo                = uct_rc_mlx5_iface_srq_topo(self, md, mlx5_config);
     self->tm.cmd_wq.super.super.type = UCT_IB_MLX5_OBJ_TYPE_LAST;
     self->tm.mp.cyclic_xrq = mlx5_config->tm.cyclic_xrq;
+    init_attr->rx_hdr_len  = UCT_RC_MLX5_MP_ENABLED(self) ?
+                             0 : sizeof(uct_rc_mlx5_hdr_t);
+    self->tm.am_desc.super.cb = uct_rc_mlx5_release_desc;
 
     UCS_CLASS_CALL_SUPER_INIT(uct_rc_iface_t, ops, md, worker, params,
                               rc_config, init_attr);
 
-    dev                              = uct_ib_iface_device(&self->super.super);
-    self->tx.mmio_mode               = mlx5_config->super.mmio_mode;
-    self->tx.bb_max                  = ucs_min(mlx5_config->tx_max_bb, UINT16_MAX);
+    dev                       = uct_ib_iface_device(&self->super.super);
+    self->tx.mmio_mode        = mlx5_config->super.mmio_mode;
+    self->tx.bb_max           = ucs_min(mlx5_config->tx_max_bb, UINT16_MAX);
+    self->tm.am_desc.offset   = self->super.super.config.rx_headroom_offset;
+
 
     status = uct_ib_mlx5_get_cq(self->super.super.cq[UCT_IB_DIR_TX],
                                 &self->cq[UCT_IB_DIR_TX]);

@@ -1022,8 +1022,9 @@ static void ucp_ep_config_set_am_rndv_thresh(ucp_worker_h worker, uct_iface_attr
                                                         iface_attr->cap.am.min_zcopy,
                                                         max_rndv_thresh);
 
-    ucs_trace("Active Message rndv threshold is %zu (send_nbr: %zu)",
-              config->tag.rndv.am_thresh, config->tag.rndv_send_nbr.am_thresh);
+    ucs_error("Active Message rndv threshold is %zu (send_nbr: %zu), MAX %ld",
+              config->tag.rndv.am_thresh, config->tag.rndv_send_nbr.am_thresh,
+              max_rndv_thresh);
 }
 
 static void ucp_ep_config_set_rndv_thresh(ucp_worker_t *worker,
@@ -1071,7 +1072,8 @@ static void ucp_ep_config_set_rndv_thresh(ucp_worker_t *worker,
                                                          iface_attr->cap.get.min_zcopy,
                                                          max_rndv_thresh);
 
-    ucs_trace("rndv threshold is %zu (send_nbr: %zu)",
+    ucs_error("%s rndv threshold is %zu (send_nbr: %zu)",
+              (rndv_cap_flag == UCT_IFACE_FLAG_TAG_RNDV_ZCOPY) ? "TAG" : "AM",
               config->tag.rndv.rma_thresh, config->tag.rndv_send_nbr.rma_thresh);
 }
 
