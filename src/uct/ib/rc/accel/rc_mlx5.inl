@@ -1221,9 +1221,9 @@ uct_rc_mlx5_iface_tag_handle_unexp(uct_rc_mlx5_iface_common_t *iface,
     tmh = uct_rc_mlx5_iface_tm_common_data(iface, cqe, &byte_len, &flags,
                                            has_ep, &context);
 
-    ucs_warn("Got unexp %s, tm op %d, len %d, wqe_cnt %d",
+    ucs_warn("Got unexp %s, tm op %d, len %d, wqe_cnt %d, imm %d",
             (flags & UCT_CB_PARAM_FLAG_FIRST) ? "first" : "",
-            tmh->opcode, byte_len, ntohs(cqe->wqe_counter) );
+            tmh->opcode, byte_len, ntohs(cqe->wqe_counter), UCT_RC_MLX5_TM_CQE_WITH_IMM(cqe) );
     if (ucs_unlikely(!(flags & UCT_CB_PARAM_FLAG_FIRST))) {
         headroom = iface->super.super.config.rx_payload_offset -
             iface->super.super.config.rx_headroom_offset;
@@ -1265,6 +1265,7 @@ uct_rc_mlx5_iface_tag_handle_unexp(uct_rc_mlx5_iface_common_t *iface,
 
             UCT_RC_MLX5_TM_STAT(iface, RX_RNDV_REQ_UNEXP);
         } else {
+            ucs_error("pass imm %ld", imm_data);
             status = iface->tm.eager_unexp.cb(iface->tm.eager_unexp.arg,
                                               tmh + 1, byte_len - sizeof(*tmh),
                                               flags, tmh->tag, imm_data,
@@ -1279,6 +1280,8 @@ uct_rc_mlx5_iface_tag_handle_unexp(uct_rc_mlx5_iface_common_t *iface,
         ucs_assertv_always(tmh->opcode == IBV_TMH_RNDV,
                            "Unsupported packet arrived %d, app %d tag %zu",
                            tmh->opcode, tmh->app_ctx, (size_t)tmh->tag);
+        ucs_assert_always((flags & UCT_CB_PARAM_FLAG_FIRST) &&
+                          !(flags & UCT_CB_PARAM_FLAG_MORE));
         status = uct_rc_mlx5_handle_rndv(iface, tmh, tmh->tag, byte_len);
 
         uct_rc_mlx5_iface_unexp_consumed(iface, &iface->tm.rndv_desc, cqe,
@@ -1367,6 +1370,7 @@ uct_rc_mlx5_iface_common_poll_rx(uct_rc_mlx5_iface_common_t *iface,
         break;
 
     case UCT_RC_MLX5_CQE_APP_OP_TM_NO_TAG:
+        /* TODO: optimize*/
         tmh = uct_rc_mlx5_iface_tm_common_data(iface, cqe, &byte_len, &flags,
                                                has_ep, &dummy_ctx);
 

@@ -1,5 +1,5 @@
 /**
-* Copyright (C) Mellanox Technologies Ltd. 2001-2017.  ALL RIGHTS RESERVED.
+* Copyright (C) Mellanox Technologies Ltd. 2001-2019.  ALL RIGHTS RESERVED.
 *
 * See file LICENSE for terms.
 */
@@ -14,9 +14,7 @@ extern "C" {
 #include <uct/api/uct.h>
 #include <uct/ib/rc/base/rc_ep.h>
 #include <uct/ib/rc/base/rc_iface.h>
-#if IBV_HW_TM
-#  include <uct/ib/rc/accel/rc_mlx5_common.h>
-#endif
+#include <uct/ib/rc/accel/rc_mlx5_common.h>
 }
 
 
@@ -152,8 +150,13 @@ public:
     typedef void (test_rc_mp_xrq::*send_func)(mapped_buffer*);
 
     virtual void init();
+
     test_rc_mp_xrq();
-    uct_rc_mlx5_iface_common_t* rc_mlx5_iface(entity &e);
+
+    uct_rc_mlx5_iface_common_t* rc_mlx5_iface(entity &e) {
+        return ucs_derived_of(e.iface(), uct_rc_mlx5_iface_common_t);
+   }
+
     void send_eager_bcopy(mapped_buffer *buf);
     void send_eager_zcopy(mapped_buffer *buf);
     void send_rndv_zcopy(mapped_buffer *buf);
@@ -166,15 +169,19 @@ public:
 
     static ucs_status_t unexp_eager(void *arg, void *data, size_t length,
                                     unsigned flags, uct_tag_t stag,
-                                    uint64_t imm, void **context);
+                                    uint64_t imm, uint64_t *context);
 
     static ucs_status_t unexp_rndv(void *arg, unsigned flags, uint64_t stag,
                                    const void *header, unsigned header_length,
                                    uint64_t remote_addr, size_t length,
                                    const void *rkey_buf);
 
+
 protected:
-    static size_t m_rx_counter;
+    bool             m_first_received;
+    bool             m_last_received;
+    uct_completion_t m_uct_comp;
+    static size_t    m_rx_counter;
 
     uct_test::entity& sender() {
         return **m_entities.begin();
@@ -185,11 +192,8 @@ protected:
     }
 
 private:
-    ucs_status_t unexp_handler(unsigned flags, uint64_t imm, void **context);
-    size_t           m_max_hdr;
-    bool             m_first_received;
-    bool             m_last_received;
-    uct_completion_t m_uct_comp;
+    ucs_status_t unexp_handler(unsigned flags, uint64_t imm, uint64_t *context);
+    size_t m_max_hdr;
 };
 #endif
 

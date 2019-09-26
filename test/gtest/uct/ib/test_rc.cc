@@ -1,5 +1,5 @@
 /**
-* Copyright (C) Mellanox Technologies Ltd. 2001-2017.  ALL RIGHTS RESERVED.
+* Copyright (C) Mellanox Technologies Ltd. 2001-2019.  ALL RIGHTS RESERVED.
 * Copyright (C) UT-Battelle, LLC. 2016. ALL RIGHTS RESERVED.
 * Copyright (C) ARM Ltd. 2016.All rights reserved.
 * See file LICENSE for terms.
@@ -313,22 +313,14 @@ UCT_RC_INSTANTIATE_TEST_CASE(test_rc_flow_control)
 
 
 #ifdef IBV_HW_TM
-// TODO: Remove when declared in UCT
-#define UCT_RC_MLX5_TAG_BCOPY_MAX     131072
-
 size_t test_rc_mp_xrq::m_rx_counter = 0;
 
 test_rc_mp_xrq::test_rc_mp_xrq() : m_first_received(false),
                                    m_last_received(false)
 {
-    m_max_hdr        = sizeof(ibv_tmh) + sizeof(ibv_rvh);
+    m_max_hdr = sizeof(ibv_tmh) + sizeof(ibv_rvh);
     m_uct_comp.count = 512; // We do not need completion func to be invoked
     m_uct_comp.func  = NULL;
-}
-
-uct_rc_mlx5_iface_common_t* test_rc_mp_xrq::rc_mlx5_iface(entity &e)
-{
-    return ucs_derived_of(e.iface(), uct_rc_mlx5_iface_common_t);
 }
 
 void test_rc_mp_xrq::init()
@@ -340,8 +332,6 @@ void test_rc_mp_xrq::init()
     if ((status1 != UCS_OK) || (status2 != UCS_OK)) {
         UCS_TEST_SKIP_R("No MP XRQ support");
     }
-
-    uct_test::init();
 
     uct_iface_params params;
     params.field_mask  = UCT_IFACE_PARAM_FIELD_RX_HEADROOM     |
@@ -417,9 +407,8 @@ void test_rc_mp_xrq::send_rndv_request(mapped_buffer *buf)
 void test_rc_mp_xrq::test_common(send_func sfunc, size_t num_segs,
                                  size_t exp_segs, bool exp_val)
 {
-    size_t seg_size = rc_mlx5_iface(sender())->super.super.config.seg_size;
-    size_t size     = (seg_size * num_segs) - m_max_hdr;
-    m_rx_counter    = 0;
+    size_t size  = rc_mlx5_iface(sender())->super.super.config.seg_size * num_segs - m_max_hdr;
+    m_rx_counter = 0;
 
     EXPECT_TRUE(size <= sender().iface_attr().cap.tag.eager.max_bcopy);
     mapped_buffer buf(size, SEND_SEED, sender());
@@ -444,9 +433,9 @@ ucs_status_t test_rc_mp_xrq::am_handler(void *arg, void *data, size_t length,
 }
 
 ucs_status_t test_rc_mp_xrq::unexp_handler(unsigned flags, uint64_t imm,
-                                           void **context)
+                                           uint64_t *context)
 {
-    void *self = reinterpret_cast<void*>(this);
+    uint64_t self = reinterpret_cast<uint64_t>(this);
 
     if (flags & UCT_CB_PARAM_FLAG_FIRST) {
         // Set the message context which will be passed back with the rest of
@@ -454,18 +443,18 @@ ucs_status_t test_rc_mp_xrq::unexp_handler(unsigned flags, uint64_t imm,
         *context         = self;
         m_first_received = true;
 
+        // First message should contain valid immediate value
+        EXPECT_EQ(self, imm);
     } else {
         // Check that the correct message context is passed with all fragments
         EXPECT_EQ(self, *context);
+
+        // Immediate value is passed with the first message only
+        EXPECT_EQ(0ul, imm);
     }
 
     if (!(flags & UCT_CB_PARAM_FLAG_MORE)) {
-        // Last message should contain valid immediate value
-        EXPECT_EQ(reinterpret_cast<uint64_t>(this), imm);
         m_last_received = true;
-    } else {
-        // Immediate value is passed with the last message only
-        EXPECT_EQ(0ul, imm);
     }
 
     return UCS_OK;
@@ -473,7 +462,7 @@ ucs_status_t test_rc_mp_xrq::unexp_handler(unsigned flags, uint64_t imm,
 
 ucs_status_t test_rc_mp_xrq::unexp_eager(void *arg, void *data, size_t length,
                                          unsigned flags, uct_tag_t stag,
-                                         uint64_t imm, void **context)
+                                         uint64_t imm, uint64_t *context)
 {
     test_rc_mp_xrq *self = reinterpret_cast<test_rc_mp_xrq*>(arg);
 
@@ -505,7 +494,7 @@ UCS_TEST_P(test_rc_mp_xrq, config)
 
     // With MP XRQ segment size should be equal to MTU, because HW generates
     // CQE per each received MTU
-    size_t mtu = uct_ib_mtu_value(uct_ib_iface_port_attr(&(iface)->super.super)->active_mtu);
+    int mtu = uct_ib_mtu_value(uct_ib_iface_port_attr(&(iface)->super.super)->active_mtu);
     EXPECT_EQ(mtu, iface->super.super.config.seg_size);
 
     const uct_iface_attr *attrs = &sender().iface_attr();
@@ -520,8 +509,8 @@ UCS_TEST_P(test_rc_mp_xrq, config)
 
     // Maximal AM size should not exceed segment size, so it would always
     // arrive in one-fragment packet (with header it should be strictly less)
-    EXPECT_LT(attrs->cap.am.max_bcopy, iface->super.super.config.seg_size);
-    EXPECT_LT(attrs->cap.am.max_zcopy, iface->super.super.config.seg_size);
+    EXPECT_TRUE(attrs->cap.am.max_bcopy < iface->super.super.config.seg_size);
+    EXPECT_TRUE(attrs->cap.am.max_zcopy < iface->super.super.config.seg_size);
 }
 
 UCS_TEST_P(test_rc_mp_xrq, am)
@@ -572,7 +561,7 @@ UCS_TEST_P(test_rc_mp_xrq, rndv_request)
 }
 
 // !! Do not instantiate test_rc_mp_xrq now, until MP XRQ support is upstreamed
-//_UCT_INSTANTIATE_TEST_CASE(test_rc_mp_xrq, rc_mlx5)
+_UCT_INSTANTIATE_TEST_CASE(test_rc_mp_xrq, rc_mlx5)
 #endif
 
 
