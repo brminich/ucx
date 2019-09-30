@@ -64,6 +64,8 @@
 #define UCT_RC_MLX5_OPCODE_MASK             0xff
 #define UCT_RC_MLX5_TAG_BCOPY_MAX           131072 /* TODO: Revise */
 #define UCT_RC_MLX5_MP_MAX_NUM_STRIDES      16
+#define UCT_RC_MLX5_SINGLE_FRAG_MSG(_flags) \
+    (((_flags) & UCT_CB_PARAM_FLAG_FIRST) && !((_flags) & UCT_CB_PARAM_FLAG_MORE))
 
 #define UCT_RC_MLX5_CHECK_AM_ZCOPY(_id, _header_length, _length, _seg_size, _av_size) \
     UCT_CHECK_AM_ID(_id); \
@@ -236,6 +238,13 @@ typedef struct uct_rc_mlx5_cmd_wq {
     int                           ops_mask; /* mask which bounds head and tail by
                                                ops array size */
 } uct_rc_mlx5_cmd_wq_t;
+
+
+typedef struct uct_rc_mlx5_mp_context {
+    uint64_t                      context;
+    uint32_t                      imm;
+    uint8_t                       free;
+} uct_rc_mlx5_mp_context_t;
 
 #if IBV_HW_TM
 #  define UCT_RC_MLX5_IFACE_GET_TM_BCOPY_DESC(_iface, _mp, _desc, _tag, _app_ctx, \
