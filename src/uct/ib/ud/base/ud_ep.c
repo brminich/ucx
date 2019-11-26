@@ -110,6 +110,7 @@ static void uct_ud_ep_reset(uct_ud_ep_t *ep)
     ep->resend.psn       = ep->tx.psn;
     ep->resend.max_psn   = ep->tx.acked_psn;
     ep->rx_creq_count    = 0;
+    ep->tx_creq_count    = 0;
 
     ep->rx.acked_psn = UCT_UD_INITIAL_PSN - 1;
     ucs_frag_list_init(ep->tx.psn-1, &ep->rx.ooo_pkts, 0 /*TODO: ooo support */
@@ -520,10 +521,10 @@ static void uct_ud_ep_rx_creq(uct_ud_iface_t *iface, uct_ud_neth_t *neth)
             ep->dest_ep_id = uct_ib_unpack_uint24(ctl->conn_req.ep_addr.ep_id);
             ep->rx.ooo_pkts.head_sn = neth->psn;
             uct_ud_peer_copy(&ep->peer, ucs_unaligned_ptr(&ctl->peer));
-            ucs_debug("simultanuous CREQ ep=%p"
-                      "(iface=%p conn_id=%d ep_id=%d, dest_ep_id=%d rx_psn=%u)",
-                      ep, iface, ep->conn_id, ep->ep_id,
-                      ep->dest_ep_id, ep->rx.ooo_pkts.head_sn);
+            ucs_info("simultanuous CREQ ep=%p"
+                     "(iface=%p conn_id=%d ep_id=%d, dest_ep_id=%d rx_psn=%u)",
+                     ep, iface, ep->conn_id, ep->ep_id,
+                     ep->dest_ep_id, ep->rx.ooo_pkts.head_sn);
             if (UCT_UD_PSN_COMPARE(ep->tx.psn, >, UCT_UD_INITIAL_PSN)) {
                 /* our own creq was sent, treat incoming creq as ack and remove our own
                  * from tx window
@@ -539,12 +540,17 @@ static void uct_ud_ep_rx_creq(uct_ud_iface_t *iface, uct_ud_neth_t *neth)
     ucs_assert_always(ctl->conn_req.conn_id == ep->conn_id);
     ucs_assert_always(uct_ib_unpack_uint24(ctl->conn_req.ep_addr.ep_id) == ep->dest_ep_id);
     /* creq must always have same psn */
+    ucs_info("iface=%p ep=%p, rx_creq: conn_id=%d ep_id=%d, dest_ep_id=%d rx_psn=%u "
+             "neth_psn=%u ep_flags=0x%x ctl_ops=0x%x rx_creq_count=%d txcreq=%d",
+             iface, ep, ep->conn_id, ep->ep_id, ep->dest_ep_id,
+             ep->rx.ooo_pkts.head_sn, neth->psn, ep->flags,
+             ep->tx.pending.ops, ep->rx_creq_count, ep->tx_creq_count);
     ucs_assertv_always(ep->rx.ooo_pkts.head_sn == neth->psn,
                        "iface=%p ep=%p conn_id=%d ep_id=%d, dest_ep_id=%d rx_psn=%u "
-                       "neth_psn=%u ep_flags=0x%x ctl_ops=0x%x rx_creq_count=%d",
+                       "neth_psn=%u ep_flags=0x%x ctl_ops=0x%x rx_creq_count=%d, txcreq=%d",
                        iface, ep, ep->conn_id, ep->ep_id, ep->dest_ep_id,
                        ep->rx.ooo_pkts.head_sn, neth->psn, ep->flags,
-                       ep->tx.pending.ops, ep->rx_creq_count);
+                       ep->tx.pending.ops, ep->rx_creq_count, ep->tx_creq_count);
     /* scedule connection reply op */
     UCT_UD_EP_HOOK_CALL_RX(ep, neth, sizeof(*neth) + sizeof(*ctl));
     if (uct_ud_ep_ctl_op_check(ep, UCT_UD_EP_OP_CREQ)) {
@@ -568,6 +574,13 @@ static void uct_ud_ep_rx_ctl(uct_ud_iface_t *iface, uct_ud_ep_t *ep,
     if (UCT_UD_PSN_COMPARE(neth->psn, <, ep->rx.ooo_pkts.head_sn)) {
         return;
     }
+
+
+    ucs_info("iface=%p ep=%p, rx_crep: conn_id=%d ep_id=%d, dest_ep_id=%d rx_psn=%u"
+             " neth_psn=%u ep_flags=0x%x ctl_ops=0x%x, conn_src_epid=%d rxcnt=%d txcnt=%d",
+             iface, ep, ep->conn_id, ep->ep_id, ep->dest_ep_id,
+             ep->rx.ooo_pkts.head_sn, neth->psn, ep->flags, ep->tx.pending.ops,
+              ctl->conn_rep.src_ep_id, ep->rx_creq_count, ep->tx_creq_count);
 
     ep->rx.ooo_pkts.head_sn = neth->psn;
     ep->dest_ep_id = ctl->conn_rep.src_ep_id;
@@ -625,6 +638,13 @@ uct_ud_send_skb_t *uct_ud_ep_prepare_creq(uct_ud_ep_t *ep)
     }
 
     uct_ud_peer_name(ucs_unaligned_ptr(&creq->peer));
+    ++ep->tx_creq_count;
+
+    ucs_info("iface=%p ep=%p, prep_creq: conn_id=%d ep_id=%d, dest_ep_id=%d rx_psn=%u"
+             " neth_psn=%u ep_flags=0x%x ctl_ops=0x%x, rxcreq=%d, txcreq=%d",
+             iface, ep, ep->conn_id, ep->ep_id, ep->dest_ep_id,
+             ep->rx.ooo_pkts.head_sn, neth->psn, ep->flags, ep->tx.pending.ops,
+             ep->rx_creq_count, ep->tx_creq_count);
 
     skb->len = sizeof(*neth) + sizeof(*creq) + iface->super.addr_size;
     return skb;
@@ -848,6 +868,11 @@ ucs_status_t uct_ud_ep_flush(uct_ep_h ep_h, unsigned flags,
     uct_ud_enter(iface);
 
     if (ucs_unlikely(flags & UCT_FLUSH_FLAG_CANCEL)) {
+    ucs_info("iface=%p ep=%p, flush_cancel: conn_id=%d ep_id=%d, dest_ep_id=%d rx_psn=%u"
+             " ep_flags=0x%x ctl_ops=0x%x, rxcreq=%d, txcreq=%d",
+             iface, ep, ep->conn_id, ep->ep_id, ep->dest_ep_id,
+             ep->rx.ooo_pkts.head_sn, ep->flags, ep->tx.pending.ops,
+             ep->rx_creq_count, ep->tx_creq_count);
         uct_ud_tx_wnd_purge_outstanding(iface, ep, UCS_ERR_CANCELED);
         uct_ud_iface_dispatch_zcopy_comps(iface);
         uct_ep_pending_purge(ep_h, NULL, 0);
@@ -911,6 +936,11 @@ static uct_ud_send_skb_t *uct_ud_ep_prepare_crep(uct_ud_ep_t *ep)
 
     uct_ud_peer_name(ucs_unaligned_ptr(&crep->peer));
 
+    ucs_info("iface=%p ep=%p, prep_creP: conn_id=%d ep_id=%d, dest_ep_id=%d rx_psn=%u"
+             " neth_psn=%u ep_flags=0x%x ctl_ops=0x%x, rxcreq=%d, txcreq=%d",
+             iface, ep, ep->conn_id, ep->ep_id, ep->dest_ep_id,
+             ep->rx.ooo_pkts.head_sn, neth->psn, ep->flags, ep->tx.pending.ops,
+             ep->rx_creq_count, ep->tx_creq_count);
     skb->len = sizeof(*neth) + sizeof(*crep);
     uct_ud_ep_ctl_op_del(ep, UCT_UD_EP_OP_CREP);
     return skb;
@@ -1284,7 +1314,11 @@ void  uct_ud_ep_disconnect(uct_ep_h tl_ep)
     uct_ud_ep_t    *ep    = ucs_derived_of(tl_ep, uct_ud_ep_t);
     uct_ud_iface_t *iface = ucs_derived_of(tl_ep->iface, uct_ud_iface_t);
 
-    ucs_debug("ep %p: disconnect", ep);
+    ucs_info("iface=%p ep=%p, disconnect: conn_id=%d ep_id=%d, dest_ep_id=%d rx_psn=%u"
+             " ep_flags=0x%x ctl_ops=0x%x, rxcreq=%d, txcreq=%d",
+             iface, ep, ep->conn_id, ep->ep_id, ep->dest_ep_id,
+             ep->rx.ooo_pkts.head_sn, ep->flags, ep->tx.pending.ops,
+             ep->rx_creq_count, ep->tx_creq_count);
 
     /* cancel user pending */
     uct_ud_ep_pending_purge(tl_ep, NULL, NULL);
