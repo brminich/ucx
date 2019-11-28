@@ -495,6 +495,7 @@ static uct_ud_ep_t *uct_ud_ep_create_passive(uct_ud_iface_t *iface, uct_ud_ctl_h
                                      &ctl->conn_req.ep_addr.iface_addr,
                                      ep, ctl->conn_req.conn_id);
     ucs_assert_always(status == UCS_OK);
+    ucs_debug("iface=%p ep=%p create passive ep", iface, ep);
     return ep;
 }
 
@@ -540,9 +541,9 @@ static void uct_ud_ep_rx_creq(uct_ud_iface_t *iface, uct_ud_neth_t *neth)
     ucs_assert_always(ctl->conn_req.conn_id == ep->conn_id);
     ucs_assert_always(uct_ib_unpack_uint24(ctl->conn_req.ep_addr.ep_id) == ep->dest_ep_id);
     /* creq must always have same psn */
-    ucs_info("iface=%p ep=%p, rx_creq: conn_id=%d ep_id=%d, dest_ep_id=%d rx_psn=%u "
+    ucs_debug("iface=%p ep=%p, rx_creq:(%s:%d) conn_id=%d ep_id=%d, dest_ep_id=%d rx_psn=%u "
              "neth_psn=%u ep_flags=0x%x ctl_ops=0x%x rx_creq_count=%d txcreq=%d",
-             iface, ep, ep->conn_id, ep->ep_id, ep->dest_ep_id,
+             iface, ep,ep->peer.name, ep->peer.pid, ep->conn_id, ep->ep_id, ep->dest_ep_id,
              ep->rx.ooo_pkts.head_sn, neth->psn, ep->flags,
              ep->tx.pending.ops, ep->rx_creq_count, ep->tx_creq_count);
     ucs_assertv_always(ep->rx.ooo_pkts.head_sn == neth->psn,
@@ -575,10 +576,9 @@ static void uct_ud_ep_rx_ctl(uct_ud_iface_t *iface, uct_ud_ep_t *ep,
         return;
     }
 
-
-    ucs_info("iface=%p ep=%p, rx_crep: conn_id=%d ep_id=%d, dest_ep_id=%d rx_psn=%u"
+    ucs_debug("iface=%p ep=%p, rx_crep:(%s:%d) conn_id=%d ep_id=%d, dest_ep_id=%d rx_psn=%u"
              " neth_psn=%u ep_flags=0x%x ctl_ops=0x%x, conn_src_epid=%d rxcnt=%d txcnt=%d",
-             iface, ep, ep->conn_id, ep->ep_id, ep->dest_ep_id,
+             iface, ep,ep->peer.name, ep->peer.pid, ep->conn_id, ep->ep_id, ep->dest_ep_id,
              ep->rx.ooo_pkts.head_sn, neth->psn, ep->flags, ep->tx.pending.ops,
               ctl->conn_rep.src_ep_id, ep->rx_creq_count, ep->tx_creq_count);
 
@@ -640,9 +640,9 @@ uct_ud_send_skb_t *uct_ud_ep_prepare_creq(uct_ud_ep_t *ep)
     uct_ud_peer_name(ucs_unaligned_ptr(&creq->peer));
     ++ep->tx_creq_count;
 
-    ucs_info("iface=%p ep=%p, prep_creq: conn_id=%d ep_id=%d, dest_ep_id=%d rx_psn=%u"
+    ucs_debug("iface=%p ep=%p, prep_creq:(%s:%d) conn_id=%d ep_id=%d, dest_ep_id=%d rx_psn=%u"
              " neth_psn=%u ep_flags=0x%x ctl_ops=0x%x, rxcreq=%d, txcreq=%d",
-             iface, ep, ep->conn_id, ep->ep_id, ep->dest_ep_id,
+             iface, ep,creq->peer.name, creq->peer.pid, ep->conn_id, ep->ep_id, ep->dest_ep_id,
              ep->rx.ooo_pkts.head_sn, neth->psn, ep->flags, ep->tx.pending.ops,
              ep->rx_creq_count, ep->tx_creq_count);
 
@@ -706,14 +706,16 @@ void uct_ud_ep_process_rx(uct_ud_iface_t *iface, uct_ud_neth_t *neth, unsigned b
             ooo_type != UCS_FRAG_LIST_INSERT_FAIL) {
             ucs_fatal("Out of order is not implemented: got %d", ooo_type);
         }
-        ucs_trace_data("DUP/OOB - schedule ack, head_sn=%d sn=%d",
-                       ep->rx.ooo_pkts.head_sn, neth->psn);
+        ucs_debug("iface=%p ep=%p DUP/OOB - schedule ack, head_sn=%d sn=%d",
+                  iface, ep, ep->rx.ooo_pkts.head_sn, neth->psn);
         uct_ud_ep_ctl_op_add(iface, ep, UCT_UD_EP_OP_ACK);
         goto out;
     }
 
     if (ucs_unlikely(!is_am && (neth->packet_type & UCT_UD_PACKET_FLAG_PUT))) {
         /* TODO: remove once ucp implements put */
+        ucs_debug("iface=%p ep=%p got PUT, head_sn=%d sn=%d",
+                  iface, ep, ep->rx.ooo_pkts.head_sn, neth->psn);
         uct_ud_ep_rx_put(neth, byte_len);
         goto out;
     }
@@ -722,6 +724,8 @@ void uct_ud_ep_process_rx(uct_ud_iface_t *iface, uct_ud_neth_t *neth, unsigned b
                      !(iface->super.super.am[am_id].flags & UCT_CB_FLAG_ASYNC))) {
         skb->u.am.len = byte_len - sizeof(*neth);
         ucs_queue_push(&iface->rx.pending_q, &skb->u.am.queue);
+        ucs_debug("iface=%p ep=%p got async AM, head_sn=%d sn=%d",
+                  iface, ep, ep->rx.ooo_pkts.head_sn, neth->psn);
     } else {
         /* Avoid reordering with respect to pending operations, if user AM handler
          * initiates sends from any endpoint created on the iface.
@@ -729,6 +733,8 @@ void uct_ud_ep_process_rx(uct_ud_iface_t *iface, uct_ud_neth_t *neth, unsigned b
          * are processed. */
         uct_ud_iface_raise_pending_async_ev(iface);
 
+        ucs_debug("iface=%p ep=%p got AM, head_sn=%d sn=%d",
+                  iface, ep, ep->rx.ooo_pkts.head_sn, neth->psn);
         uct_ib_iface_invoke_am_desc(&iface->super, am_id, neth + 1,
                                     byte_len - sizeof(*neth), &skb->super);
     }
@@ -867,12 +873,12 @@ ucs_status_t uct_ud_ep_flush(uct_ep_h ep_h, unsigned flags,
 
     uct_ud_enter(iface);
 
-    if (ucs_unlikely(flags & UCT_FLUSH_FLAG_CANCEL)) {
-    ucs_info("iface=%p ep=%p, flush_cancel: conn_id=%d ep_id=%d, dest_ep_id=%d rx_psn=%u"
+    ucs_debug("iface=%p ep=%p, flush_cancel(%s:%d): conn_id=%d ep_id=%d, dest_ep_id=%d rx_psn=%u"
              " ep_flags=0x%x ctl_ops=0x%x, rxcreq=%d, txcreq=%d",
-             iface, ep, ep->conn_id, ep->ep_id, ep->dest_ep_id,
+             iface, ep,ep->peer.name, ep->peer.pid, ep->conn_id, ep->ep_id, ep->dest_ep_id,
              ep->rx.ooo_pkts.head_sn, ep->flags, ep->tx.pending.ops,
              ep->rx_creq_count, ep->tx_creq_count);
+    if (ucs_unlikely(flags & UCT_FLUSH_FLAG_CANCEL)) {
         uct_ud_tx_wnd_purge_outstanding(iface, ep, UCS_ERR_CANCELED);
         uct_ud_iface_dispatch_zcopy_comps(iface);
         uct_ep_pending_purge(ep_h, NULL, 0);
@@ -936,9 +942,9 @@ static uct_ud_send_skb_t *uct_ud_ep_prepare_crep(uct_ud_ep_t *ep)
 
     uct_ud_peer_name(ucs_unaligned_ptr(&crep->peer));
 
-    ucs_info("iface=%p ep=%p, prep_creP: conn_id=%d ep_id=%d, dest_ep_id=%d rx_psn=%u"
+    ucs_info("iface=%p ep=%p, prep_creP(%s:%d): conn_id=%d ep_id=%d, dest_ep_id=%d rx_psn=%u"
              " neth_psn=%u ep_flags=0x%x ctl_ops=0x%x, rxcreq=%d, txcreq=%d",
-             iface, ep, ep->conn_id, ep->ep_id, ep->dest_ep_id,
+             iface, ep,crep->peer.name, crep->peer.pid, ep->conn_id, ep->ep_id, ep->dest_ep_id,
              ep->rx.ooo_pkts.head_sn, neth->psn, ep->flags, ep->tx.pending.ops,
              ep->rx_creq_count, ep->tx_creq_count);
     skb->len = sizeof(*neth) + sizeof(*crep);
@@ -1314,7 +1320,7 @@ void  uct_ud_ep_disconnect(uct_ep_h tl_ep)
     uct_ud_ep_t    *ep    = ucs_derived_of(tl_ep, uct_ud_ep_t);
     uct_ud_iface_t *iface = ucs_derived_of(tl_ep->iface, uct_ud_iface_t);
 
-    ucs_info("iface=%p ep=%p, disconnect: conn_id=%d ep_id=%d, dest_ep_id=%d rx_psn=%u"
+    ucs_debug("iface=%p ep=%p, disconnect: conn_id=%d ep_id=%d, dest_ep_id=%d rx_psn=%u"
              " ep_flags=0x%x ctl_ops=0x%x, rxcreq=%d, txcreq=%d",
              iface, ep, ep->conn_id, ep->ep_id, ep->dest_ep_id,
              ep->rx.ooo_pkts.head_sn, ep->flags, ep->tx.pending.ops,
