@@ -205,6 +205,7 @@ ucs_status_t uct_rc_verbs_ep_get_bcopy(uct_ep_h tl_ep,
 
     UCT_TL_EP_STAT_OP(&ep->super.super, GET, BCOPY, length);
     uct_rc_verbs_ep_post_send_desc(ep, &wr, desc, IBV_SEND_SIGNALED, INT_MAX);
+    --iface->super.tx.reads_available;
     return UCS_INPROGRESS;
 }
 
@@ -225,6 +226,7 @@ ucs_status_t uct_rc_verbs_ep_get_zcopy(uct_ep_h tl_ep, const uct_iov_t *iov, siz
     if (status == UCS_INPROGRESS) {
         UCT_TL_EP_STAT_OP(&ep->super.super, GET, ZCOPY,
                           uct_iov_total_length(iov, iovcnt));
+        --ucs_derived_of(tl_ep->iface,uct_rc_iface_t)->tx.reads_available;
     }
     return status;
 }

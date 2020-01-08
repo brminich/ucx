@@ -86,6 +86,11 @@ ucs_config_field_t uct_rc_iface_common_config_table[] = {
    ucs_offsetof(uct_rc_iface_common_config_t, fence_mode),
                 UCS_CONFIG_TYPE_ENUM(uct_rc_fence_mode_values)},
 
+  {"TX_NUM_READ_OPS", "inf",
+   "Maximal number of simultaneous RDMA_READ operations.",
+   ucs_offsetof(uct_rc_iface_common_config_t, tx.max_reads), UCS_CONFIG_TYPE_UINT},
+
+
   {NULL}
 };
 
@@ -533,6 +538,7 @@ UCS_CLASS_INIT_FUNC(uct_rc_iface_t, uct_rc_iface_ops_t *ops, uct_md_h md,
                               &config->super, init_attr);
 
     self->tx.cq_available           = init_attr->tx_cq_len - 1;
+    self->tx.reads_available        = config->tx.max_reads;
     self->rx.srq.available          = 0;
     self->rx.srq.quota              = 0;
     self->config.tx_qp_len          = config->super.tx.queue_len;

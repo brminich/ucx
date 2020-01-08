@@ -151,6 +151,7 @@ typedef struct uct_rc_iface_common_config {
         unsigned             retry_count;
         double               rnr_timeout;
         unsigned             rnr_retry_count;
+        unsigned             max_reads;
     } tx;
 
     struct {
@@ -208,6 +209,7 @@ struct uct_rc_iface {
         ucs_arbiter_t           arbiter;
         uct_rc_iface_send_op_t  *ops_buffer;
         uct_ib_fence_info_t     fi;
+        unsigned                reads_available;
     } tx;
 
     struct {
@@ -433,7 +435,8 @@ static inline void uct_rc_zcopy_desc_set_header(uct_rc_hdr_t *rch,
 static inline int uct_rc_iface_has_tx_resources(uct_rc_iface_t *iface)
 {
     return uct_rc_iface_have_tx_cqe_avail(iface) &&
-           !ucs_mpool_is_empty(&iface->tx.mp);
+           !ucs_mpool_is_empty(&iface->tx.mp) &&
+           (iface->tx.reads_available != 0);
 }
 
 static UCS_F_ALWAYS_INLINE uct_rc_send_handler_t

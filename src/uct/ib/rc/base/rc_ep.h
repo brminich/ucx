@@ -94,7 +94,11 @@ enum {
 
 #define UCT_RC_CHECK_RES(_iface, _ep) \
     UCT_RC_CHECK_CQE_RET(_iface, _ep, UCS_ERR_NO_RESOURCE) \
-    UCT_RC_CHECK_TXQP_RET(_iface, _ep, UCS_ERR_NO_RESOURCE)
+    UCT_RC_CHECK_TXQP_RET(_iface, _ep, UCS_ERR_NO_RESOURCE) \
+    if (ucs_unlikely(!(_iface)->tx.reads_available)) { \
+        return UCS_ERR_NO_RESOURCE; \
+    }
+
 
 /*
  * check for FC credits and add FC protocol bits (if any)

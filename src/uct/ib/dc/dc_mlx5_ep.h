@@ -431,6 +431,10 @@ static inline ucs_status_t uct_dc_mlx5_iface_dci_get(uct_dc_mlx5_iface_t *iface,
 
     ucs_assert(!iface->super.super.config.tx_moderation);
 
+    if (!uct_dc_mlx5_iface_has_tx_resources(iface)) {
+        goto out_no_res;
+    }
+
     if (uct_dc_mlx5_iface_is_dci_rand(iface)) {
         if (uct_dc_mlx5_iface_dci_has_tx_resources(iface, ep->dci)) {
             return UCS_OK;
@@ -532,7 +536,8 @@ static inline struct mlx5_grh_av *uct_dc_mlx5_ep_get_grh(uct_dc_mlx5_ep_t *ep)
             if (ucs_unlikely(status != UCS_OK)) { \
                 if (((_ep)->dci != UCT_DC_MLX5_EP_NO_DCI) && \
                     !uct_dc_mlx5_iface_is_dci_rand(_iface)) { \
-                    ucs_assertv_always(uct_dc_mlx5_iface_dci_has_outstanding(_iface, (_ep)->dci), \
+                    ucs_assertv_always(uct_dc_mlx5_iface_dci_has_outstanding(_iface, (_ep)->dci) || \
+                                       !uct_dc_mlx5_iface_has_tx_resources(_iface) , \
                                        "iface (%p) ep (%p) dci leak detected: dci=%d", \
                                        _iface, _ep, (_ep)->dci); \
                 } \

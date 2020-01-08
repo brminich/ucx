@@ -487,6 +487,7 @@ ucs_status_t uct_dc_mlx5_ep_get_bcopy(uct_ep_h tl_ep,
     uct_dc_mlx5_iface_bcopy_post(iface, ep, MLX5_OPCODE_RDMA_READ, length,
                                  remote_addr, rkey, desc, 0, 0, desc + 1, NULL);
     UCT_TL_EP_STAT_OP(&ep->super, GET, BCOPY, length);
+    --iface->super.super.tx.reads_available;
     return UCS_INPROGRESS;
 }
 
@@ -510,6 +511,7 @@ ucs_status_t uct_dc_mlx5_ep_get_zcopy(uct_ep_h tl_ep, const uct_iov_t *iov, size
                                  comp, 0);
     UCT_TL_EP_STAT_OP(&ep->super, GET, ZCOPY,
                       uct_iov_total_length(iov, iovcnt));
+    --iface->super.super.tx.reads_available;
     return UCS_INPROGRESS;
 }
 
