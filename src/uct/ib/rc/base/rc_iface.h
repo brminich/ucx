@@ -152,6 +152,7 @@ typedef struct uct_rc_iface_common_config {
         double               rnr_timeout;
         unsigned             rnr_retry_count;
         unsigned             max_reads;
+        size_t               max_get_zcopy;
     } tx;
 
     struct {
@@ -249,6 +250,7 @@ struct uct_rc_iface {
 #endif
         uct_rc_fence_mode_t  fence_mode;
         unsigned             exp_backoff;
+        size_t               max_get_zcopy;
 
         /* Atomic callbacks */
         uct_rc_send_handler_t  atomic64_handler;      /* 64bit ib-spec */
