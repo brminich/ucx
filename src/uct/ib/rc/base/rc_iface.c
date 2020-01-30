@@ -86,6 +86,14 @@ ucs_config_field_t uct_rc_iface_common_config_table[] = {
    ucs_offsetof(uct_rc_iface_common_config_t, fence_mode),
                 UCS_CONFIG_TYPE_ENUM(uct_rc_fence_mode_values)},
 
+  {"TX_NUM_GET_OPS", "inf",
+   "Maximal number of simultaneous get/RDMA_READ operations.",
+   ucs_offsetof(uct_rc_iface_common_config_t, tx.max_get_ops), UCS_CONFIG_TYPE_UINT},
+
+  {"MAX_GET_ZCOPY", "auto",
+   "Maximal size of get operation with zcopy protocol.",
+   ucs_offsetof(uct_rc_iface_common_config_t, tx.max_get_zcopy), UCS_CONFIG_TYPE_MEMUNITS},
+
   {NULL}
 };
 
@@ -221,7 +229,7 @@ ucs_status_t uct_rc_iface_query(uct_rc_iface_t *iface,
     /* GET */
     iface_attr->cap.get.max_bcopy = iface->super.config.seg_size;
     iface_attr->cap.get.min_zcopy = iface->super.config.max_inl_resp + 1;
-    iface_attr->cap.get.max_zcopy = uct_ib_iface_port_attr(&iface->super)->max_msg_sz;
+    iface_attr->cap.get.max_zcopy = iface->config.max_get_zcopy;
     iface_attr->cap.get.max_iov   = uct_ib_iface_get_max_iov(&iface->super);
 
     /* AM */
@@ -533,6 +541,7 @@ UCS_CLASS_INIT_FUNC(uct_rc_iface_t, uct_rc_iface_ops_t *ops, uct_md_h md,
                               &config->super, init_attr);
 
     self->tx.cq_available           = init_attr->tx_cq_len - 1;
+    self->tx.gets_available         = config->tx.max_get_ops;
     self->rx.srq.available          = 0;
     self->rx.srq.quota              = 0;
     self->config.tx_qp_len          = config->super.tx.queue_len;
@@ -555,6 +564,16 @@ UCS_CLASS_INIT_FUNC(uct_rc_iface_t, uct_rc_iface_ops_t *ops, uct_md_h md,
 #if UCS_ENABLE_ASSERT
     self->config.tx_cq_len          = init_attr->tx_cq_len;
 #endif
+
+    self->config.max_get_zcopy = uct_ib_iface_port_attr(&self->super)->max_msg_sz;
+    if (config->tx.max_get_zcopy != UCS_MEMUNITS_AUTO) {
+        if (config->tx.max_get_zcopy > self->config.max_get_zcopy) {
+            ucs_warn("can't set max_get_zcopy to %ld, trimmed by %ld",
+                     config->tx.max_get_zcopy, self->config.max_get_zcopy);
+        } else {
+            self->config.max_get_zcopy = config->tx.max_get_zcopy;
+        }
+    }
 
     uct_ib_fence_info_init(&self->tx.fi);
     uct_rc_iface_set_path_mtu(self, config);
