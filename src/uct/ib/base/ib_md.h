@@ -89,6 +89,7 @@ typedef struct uct_ib_mem {
     uint32_t                rkey;
     uint32_t                atomic_rkey;
     uint32_t                flags;
+    uint32_t                umr_depth;
 } uct_ib_mem_t;
 
 /**
@@ -108,6 +109,7 @@ typedef struct uct_ib_md {
         uct_ib_device_spec_t *specs;    /* Custom device specifications */
         unsigned             count;     /* Number of custom devices */
     } custom_devices;
+
     int                      check_subnet_filter;
     uint64_t                 subnet_filter;
     double                   pci_bw;

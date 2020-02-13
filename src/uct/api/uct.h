@@ -632,9 +632,10 @@ enum {
     UCT_MD_FLAG_RKEY_PTR   = UCS_BIT(6),  /**< MD supports direct access to
                                                remote memory via a pointer that
                                                is returned by @ref uct_rkey_ptr */
-    UCT_MD_FLAG_SOCKADDR   = UCS_BIT(7)   /**< MD support for client-server
+    UCT_MD_FLAG_SOCKADDR   = UCS_BIT(7),  /**< MD support for client-server
                                                connection establishment via
                                                sockaddr */
+    UCT_MD_FLAG_REG_NC     = UCS_BIT(8)   /**< MD support non-contig registration */
 };
 
 /**
@@ -662,6 +663,7 @@ enum uct_md_mem_flags {
     UCT_MD_MEM_ACCESS_REMOTE_PUT    = UCS_BIT(5), /**< enable remote put access */
     UCT_MD_MEM_ACCESS_REMOTE_GET    = UCS_BIT(6), /**< enable remote get access */
     UCT_MD_MEM_ACCESS_REMOTE_ATOMIC = UCS_BIT(7), /**< enable remote atomic access */
+    UCT_MD_MEM_FLAG_EMPTY           = UCS_BIT(8), /**< Create empty handle (for UMR) */
 
     /** enable local and remote access for all operations */
     UCT_MD_MEM_ACCESS_ALL =  (UCT_MD_MEM_ACCESS_REMOTE_PUT|
@@ -2483,6 +2485,33 @@ UCT_INLINE_API ucs_status_t uct_ep_am_zcopy(uct_ep_h ep, uint8_t id,
 {
     return ep->iface->ops.ep_am_zcopy(ep, id, header, header_length, iov, iovcnt,
                                       flags, comp);
+}
+
+/**
+ * @ingroup UCT_AM
+ * @brief Register non-contiguous memory.
+ *
+ *
+ * @param [in]  ep           Destination endpoint handle.
+ * @param [in]  iov          Points to an array of @ref ::uct_iov_t structures.
+ *                           The @a iov pointer must be valid address of an array
+ *                           of @ref ::uct_iov_t structures. A particular structure
+ *                           pointer must be valid address. NULL terminated pointer
+ *                           is not required.
+ * @param [in]  iovcnt       Size of the @a iov data @ref ::uct_iov_t structures
+ *                           array. If @a iovcnt is zero, the data is considered empty.
+ *                           @a iovcnt is limited by @ref uct_iface_attr_cap_am_max_iov
+ *                           "uct_iface_attr::cap::am::max_iov"
+ * @param [out] md_p         Filled with the memory domain handle, for destruction.
+ * @param [out] memh_p       Filled with handle for allocated region.
+ * @param [in]  comp         Completion handle as defined by @ref ::uct_completion_t.
+ *
+ */
+UCT_INLINE_API ucs_status_t uct_ep_mem_reg_nc(uct_ep_h ep, const uct_iov_t *iov,
+                                              size_t iovcnt, uct_md_h *md_p,
+                                              uct_mem_h *memh_p, uct_completion_t *comp)
+{
+    return ep->iface->ops.ep_mem_reg_nc(ep, iov, iovcnt, md_p, memh_p, comp);
 }
 
 /**

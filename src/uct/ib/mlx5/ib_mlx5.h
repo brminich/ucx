@@ -174,13 +174,43 @@ typedef struct uct_ib_mlx5_md {
     uint32_t                 flags;
     ucs_mpool_t              dbrec_pool;
     ucs_spinlock_t           dbrec_lock;
+
     struct ibv_qp            *umr_qp;   /* special QP for creating UMR */
     struct ibv_cq            *umr_cq;   /* special CQ for creating UMR */
+    ucs_mpool_t              mp;        /* Memory pool for UMR objects */
+    struct ibv_mr*           (*get_mr)(uct_mem_h memh);
 
     void                     *zero_buf;
     struct mlx5dv_devx_umem  *zero_mem;
 } uct_ib_mlx5_md_t;
 
+typedef struct uct_ib_umr {
+    unsigned               klms;
+    unsigned               depth;
+    int                    is_inline;
+    struct ibv_mr          *indirect_mr;
+    struct ibv_exp_send_wr wr;
+    size_t                 repeat_count; /* 0 is not allowed; if 1 it is UMR
+                                            list, otherwise repeated block */
+    size_t                 iovcnt;
+    uct_iov_t              *iovs;
+
+    uct_completion_t       comp;   /* completion routine */
+    ep_post_dereg_f        dereg_f; /* endpoint WR posting function pointer */
+    uct_ep_t               *tl_ep;  /* registering endpoint - for cleanup */
+
+/*
+    union {
+        struct ibv_exp_mem_region *mem_iov;
+        struct {
+            struct ibv_exp_mem_repeat_block *mem_strided; //[UCT_IB_UMR_MAX_KLMS]
+            size_t *repeat_length; //[UCT_IB_UMR_MAX_KLMS][stride_dim]
+            size_t *repeat_stride; //[UCT_IB_UMR_MAX_KLMS][stride_dim]
+            size_t *repeat_count; //[stride_dim];
+        };
+    };
+    */
+} uct_ib_umr_t;
 
 typedef enum {
     UCT_IB_MLX5_MMIO_MODE_BF_POST,    /* BF without flush, can be used only from
