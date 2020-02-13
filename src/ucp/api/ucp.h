@@ -538,8 +538,9 @@ typedef enum {
  *       will not be accessed. Otherwise, @a buffer must point to valid memory.
  */
 typedef struct ucp_dt_iov {
-    void   *buffer;   /**< Pointer to a data buffer */
-    size_t  length;   /**< Length of the @a buffer in bytes */
+    void           *buffer; /**< Pointer to a data buffer */
+    ucp_datatype_t dt;      /**< Type of the data buffer */
+    size_t         length;  /**< Length of the @a buffer in bytes */
 } ucp_dt_iov_t;
 
 
@@ -3058,6 +3059,18 @@ void ucp_request_free(void *request);
 ucs_status_t ucp_dt_create_generic(const ucp_generic_dt_ops_t *ops, void *context,
                                    ucp_datatype_t *datatype_p);
 
+
+/* Stride of iovs would represent interleave type:
+ * iov(3): i1, i2, i3
+ * stride of iovs(2): [i1,i2,i3], [i1,i2,i3] */
+ucs_status_t ucp_dt_create_stride(size_t extent, ucp_datatype_t dt, size_t count,
+                                  ucp_datatype_t *datatype_p);
+
+
+/* set of displacements (like iov template) is repeated "rep_count" times
+ * rep_count > 1 means interleaved */
+ucs_status_t ucp_dt_create_struct(ucp_datatype_set_t *set, size_t set_size,
+                                  size_t rep_count);
 
 /**
  * @ingroup UCP_DATATYPE
