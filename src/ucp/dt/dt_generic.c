@@ -33,18 +33,3 @@ ucs_status_t ucp_dt_create_generic(const ucp_generic_dt_ops_t *ops, void *contex
     return UCS_OK;
 }
 
-void ucp_dt_destroy(ucp_datatype_t datatype)
-{
-    ucp_dt_generic_t *dt;
-
-    switch (datatype & UCP_DATATYPE_CLASS_MASK) {
-    case UCP_DATATYPE_CONTIG:
-        break;
-    case UCP_DATATYPE_GENERIC:
-        dt = ucp_dt_generic(datatype);
-        ucs_free(dt);
-        break;
-    default:
-        break;
-    }
-}

@@ -140,3 +140,20 @@ size_t ucp_dt_pack(ucp_worker_h worker, ucp_datatype_t datatype,
     state->offset += result_len;
     return result_len;
 }
+
+void ucp_dt_destroy(ucp_datatype_t datatype)
+{
+    ucp_dt_generic_t *dt;
+
+    switch (datatype & UCP_DATATYPE_CLASS_MASK) {
+    case UCP_DATATYPE_CONTIG:
+    case UCP_DATATYPE_IOV:
+        break;
+    case UCP_DATATYPE_GENERIC:
+        dt = ucp_dt_generic(datatype);
+        ucs_free(dt);
+        break;
+    default:
+        break;
+    }
+}
