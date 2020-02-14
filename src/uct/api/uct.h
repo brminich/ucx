@@ -2502,16 +2502,29 @@ UCT_INLINE_API ucs_status_t uct_ep_am_zcopy(uct_ep_h ep, uint8_t id,
  *                           array. If @a iovcnt is zero, the data is considered empty.
  *                           @a iovcnt is limited by @ref uct_iface_attr_cap_am_max_iov
  *                           "uct_iface_attr::cap::am::max_iov"
+ * @param [in]  repeat_count Create interleave is > 1. 0 is not allowed.
  * @param [out] md_p         Filled with the memory domain handle, for destruction.
  * @param [out] memh_p       Filled with handle for allocated region.
  * @param [in]  comp         Completion handle as defined by @ref ::uct_completion_t.
  *
  */
 UCT_INLINE_API ucs_status_t uct_ep_mem_reg_nc(uct_ep_h ep, const uct_iov_t *iov,
-                                              size_t iovcnt, uct_md_h *md_p,
-                                              uct_mem_h *memh_p, uct_completion_t *comp)
+                                              size_t iovcnt, size_t repeat_count,
+                                              uct_md_h *md_p, uct_mem_h *memh_p,
+                                              uct_completion_t *comp)
 {
-    return ep->iface->ops.ep_mem_reg_nc(ep, iov, iovcnt, md_p, memh_p, comp);
+    return ep->iface->ops.ep_mem_reg_nc(ep, iov, iovcnt, repeat_count,
+                                        md_p, memh_p, comp);
+}
+
+/**
+ * @ingroup UCT_AM
+ * @brief Deregister non-contiguous memory.
+ */
+UCT_INLINE_API ucs_status_t uct_ep_mem_dereg_nc(uct_ep_h ep, uct_mem_h *memh_p,
+                                                uct_completion_t *comp)
+{
+    return ep->iface->ops.ep_mem_dereg_nc(ep, memh_p, comp);
 }
 
 /**

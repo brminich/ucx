@@ -3060,6 +3060,7 @@ ucs_status_t ucp_dt_create_generic(const ucp_generic_dt_ops_t *ops, void *contex
                                    ucp_datatype_t *datatype_p);
 
 
+#if 0
 /* Stride of iovs would represent interleave type:
  * iov(3): i1, i2, i3
  * stride of iovs(2): [i1,i2,i3], [i1,i2,i3] */
@@ -3071,7 +3072,7 @@ ucs_status_t ucp_dt_create_stride(size_t extent, ucp_datatype_t dt, size_t count
  * rep_count > 1 means interleaved */
 ucs_status_t ucp_dt_create_struct(ucp_datatype_set_t *set, size_t set_size,
                                   size_t rep_count);
-
+#endif
 /**
  * @ingroup UCP_DATATYPE
  * @brief Destroy a datatype and release its resources.

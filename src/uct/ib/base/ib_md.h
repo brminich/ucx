@@ -49,6 +49,7 @@ enum {
     UCT_IB_MEM_MULTITHREADED        = UCS_BIT(3), /**< The memory region registration
                                                        handled by chunks in parallel
                                                        threads */
+    UCT_IB_MEM_FLAG_NC_MR           = UCS_BIT(4)
 };
 
 enum {
@@ -89,7 +90,6 @@ typedef struct uct_ib_mem {
     uint32_t                rkey;
     uint32_t                atomic_rkey;
     uint32_t                flags;
-    uint32_t                umr_depth;
 } uct_ib_mem_t;
 
 /**

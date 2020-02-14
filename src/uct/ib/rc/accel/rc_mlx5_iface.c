@@ -779,6 +779,8 @@ static uct_rc_iface_ops_t uct_rc_mlx5_iface_ops = {
     .ep_destroy               = UCS_CLASS_DELETE_FUNC_NAME(uct_rc_mlx5_ep_t),
     .ep_get_address           = uct_rc_mlx5_ep_get_address,
     .ep_connect_to_ep         = uct_rc_mlx5_ep_connect_to_ep,
+    .ep_mem_reg_nc            = uct_rc_mlx5_ep_mem_reg_nc,
+    .ep_mem_dereg_nc          = uct_rc_mlx5_ep_mem_dereg_nc,
 #if IBV_HW_TM
     .ep_tag_eager_short       = uct_rc_mlx5_ep_tag_eager_short,
     .ep_tag_eager_bcopy       = uct_rc_mlx5_ep_tag_eager_bcopy,

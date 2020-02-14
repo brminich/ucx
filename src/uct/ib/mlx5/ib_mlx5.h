@@ -184,33 +184,6 @@ typedef struct uct_ib_mlx5_md {
     struct mlx5dv_devx_umem  *zero_mem;
 } uct_ib_mlx5_md_t;
 
-typedef struct uct_ib_umr {
-    unsigned               klms;
-    unsigned               depth;
-    int                    is_inline;
-    struct ibv_mr          *indirect_mr;
-    struct ibv_exp_send_wr wr;
-    size_t                 repeat_count; /* 0 is not allowed; if 1 it is UMR
-                                            list, otherwise repeated block */
-    size_t                 iovcnt;
-    uct_iov_t              *iovs;
-
-    uct_completion_t       comp;   /* completion routine */
-    ep_post_dereg_f        dereg_f; /* endpoint WR posting function pointer */
-    uct_ep_t               *tl_ep;  /* registering endpoint - for cleanup */
-
-/*
-    union {
-        struct ibv_exp_mem_region *mem_iov;
-        struct {
-            struct ibv_exp_mem_repeat_block *mem_strided; //[UCT_IB_UMR_MAX_KLMS]
-            size_t *repeat_length; //[UCT_IB_UMR_MAX_KLMS][stride_dim]
-            size_t *repeat_stride; //[UCT_IB_UMR_MAX_KLMS][stride_dim]
-            size_t *repeat_count; //[stride_dim];
-        };
-    };
-    */
-} uct_ib_umr_t;
 
 typedef enum {
     UCT_IB_MLX5_MMIO_MODE_BF_POST,    /* BF without flush, can be used only from
@@ -482,6 +455,20 @@ static inline uint8_t uct_ib_mlx5_md_get_atomic_mr_id(uct_ib_mlx5_md_t *md)
     return 0;
 #endif
 }
+
+#if HAVE_EXP_UMR
+ucs_status_t
+uct_ib_mlx5_exp_umr_alloc(uct_ib_mlx5_md_t *md, const uct_iov_t *iov,
+                          size_t iov_count, size_t repeat_count,
+                          uct_ib_mem_t **memh_p);
+ucs_status_t
+uct_ib_mlx5_exp_umr_register(uct_ib_mlx5_md_t *md, uct_ib_mem_t *memh,
+                             struct ibv_qp *qp, struct ibv_cq *cq, int sync);
+
+ucs_status_t
+uct_ib_mlx5_exp_umr_deregister(uct_ib_mem_t *memh, struct ibv_qp *qp,
+                               struct ibv_cq *cq);
+#endif
 
 static inline uint8_t uct_ib_mlx5_iface_get_atomic_mr_id(uct_ib_iface_t *iface)
 {

@@ -181,7 +181,7 @@ static inline ucs_status_t uct_ib_query_device(struct ibv_context *ctx,
 /*
  * Fast memory registration (UMR) support
  */
-#if HAVE_STRUCT_IBV_EXP_DEVICE_ATTR_UMR_CAPS
+#if HAVE_EXP_UMR_KSM
 #  define IBV_EXP_HAVE_UMR(_attr)                   ((_attr)->exp_device_cap_flags & IBV_EXP_DEVICE_UMR)
 #  define IBV_DEVICE_UMR_CAPS(_attr, _field)        ((_attr)->umr_caps._field)
 #else

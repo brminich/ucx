@@ -350,6 +350,78 @@ ucs_status_t uct_rc_mlx5_ep_am_zcopy(uct_ep_h tl_ep, uint8_t id, const void *hea
     return status;
 }
 
+ucs_status_t uct_rc_mlx5_ep_mem_reg_nc(uct_ep_h tl_ep, const uct_iov_t *iov,
+                                       size_t iovcnt, size_t repeat_count,
+                                       uct_md_h *md_p, uct_mem_h *memh_p,
+                                       uct_completion_t *comp)
+{
+#if HAVE_EXP_UMR
+    UCT_RC_MLX5_EP_DECL(tl_ep, iface, ep);
+    uct_ib_mlx5_md_t *md = ucs_derived_of(iface->super.super.super.md,
+                                          uct_ib_mlx5_md_t);
+    uct_ib_mem_t *memh;
+    ucs_status_t status;
+
+    if ((memh_p == NULL) || (repeat_count == 0)) {
+        ucs_error("Invalid UMR parameters: memh_p %p, repeat_count %ld",
+                  memh_p, repeat_count);
+        return UCS_ERR_INVALID_PARAM;
+    }
+
+    /* No need to take qp and cq credits, because only blocking mode is supported
+     * so far */
+    UCT_RC_CHECK_RES(&iface->super, &ep->super);
+
+    status = uct_ib_mlx5_exp_umr_alloc(md, iov, iovcnt, repeat_count, &memh);
+    if (ucs_unlikely(status != UCS_OK)) {
+        return status;
+    }
+
+    /* Register UMR on EP qp for now. No need to wait for completion in this
+     * case, but the overall register time needs to be improved overall. */
+    status = uct_ib_mlx5_exp_umr_register(md, memh, ep->tx.wq.super.verbs.qp,
+                                          iface->super.super.cq[UCT_IB_DIR_TX], 1);
+    if (ucs_unlikely(status != UCS_OK)) {
+        return status;
+    }
+
+    *md_p   = &md->super.super;
+    *memh_p = memh;
+    return UCS_OK;
+#else
+    return UCS_ERR_UNSUPPORTED;
+#endif
+}
+
+/* TODO: check that invalidate operations is not required to be performed on
+ * the same QP UMR was filled on. */
+ucs_status_t uct_rc_mlx5_ep_mem_dereg_nc(uct_ep_h tl_ep, uct_mem_h memh,
+                                         uct_completion_t *comp)
+{
+#if HAVE_EXP_UMR
+    UCT_RC_MLX5_EP_DECL(tl_ep, iface, ep);
+    uct_ib_mem_t *ib_memh = memh;
+    ucs_status_t status;
+
+    if (!(ib_memh->flags & UCT_IB_MEM_FLAG_NC_MR)) {
+        ucs_error("Invalid memh, flags 0x%x", ib_memh->flags);
+        return UCS_ERR_INVALID_PARAM;
+    }
+
+    UCT_RC_CHECK_RES(&iface->super, &ep->super);
+
+    status = uct_ib_mlx5_exp_umr_deregister(ib_memh,
+                                            ep->tx.wq.super.verbs.qp,
+                                            iface->super.super.cq[UCT_IB_DIR_TX]);
+    if (ucs_unlikely(status != UCS_OK)) {
+        ucs_error("failed dereg umr %s", ucs_status_string(status));
+    }
+    return status;
+#else
+    return UCS_ERR_UNSUPPORTED;
+#endif
+}
+
 static UCS_F_ALWAYS_INLINE void
 uct_rc_mlx5_ep_atomic_post(uct_ep_h tl_ep, unsigned opcode,
                            uct_rc_iface_send_desc_t *desc, unsigned length,

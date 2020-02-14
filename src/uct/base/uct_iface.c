@@ -369,7 +369,8 @@ ucs_status_t uct_set_ep_failed(ucs_class_t *cls, uct_ep_h tl_ep,
     ops->ep_connect_to_ep    = (uct_ep_connect_to_ep_func_t)ucs_empty_function_return_ep_timeout;
     ops->ep_destroy          = uct_ep_failed_destroy;
     ops->ep_get_address      = (uct_ep_get_address_func_t)ucs_empty_function_return_ep_timeout;
-    ops->ep_mem_reg_nc       = (void*)ucs_empty_function_return_ep_timeout;
+    ops->ep_mem_reg_nc       = (uct_ep_mem_reg_nc_t)ucs_empty_function_return_ep_timeout;
+    ops->ep_mem_dereg_nc     = (uct_ep_mem_dereg_nc_t)ucs_empty_function_return_ep_timeout;
 
     ucs_class_call_cleanup_chain(cls, tl_ep, -1);
 

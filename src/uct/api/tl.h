@@ -136,6 +136,14 @@ typedef ucs_status_t (*uct_ep_atomic64_fetch_func_t)(uct_ep_h ep,
                                                      uct_rkey_t rkey,
                                                      uct_completion_t *comp);
 
+typedef ucs_status_t (*uct_ep_mem_reg_nc_t)(uct_ep_h ep, const uct_iov_t *iov,
+                                            size_t iovcnt, size_t rep_count,
+                                            uct_md_h *md_p, uct_mem_h *memh_p,
+                                            uct_completion_t *comp);
+
+typedef ucs_status_t (*uct_ep_mem_dereg_nc_t)(uct_ep_h ep, uct_mem_h memh,
+                                              uct_completion_t *comp);
+
 /* endpoint - tagged operations */
 
 typedef ucs_status_t (*uct_ep_tag_eager_short_func_t)(uct_ep_h ep,
@@ -307,6 +315,10 @@ typedef struct uct_iface_ops {
     uct_ep_atomic64_post_func_t         ep_atomic64_post;
     uct_ep_atomic32_fetch_func_t        ep_atomic32_fetch;
     uct_ep_atomic64_fetch_func_t        ep_atomic64_fetch;
+
+    /* non-contig memory registration/deregistration */
+    uct_ep_mem_reg_nc_t                 ep_mem_reg_nc;
+    uct_ep_mem_dereg_nc_t               ep_mem_dereg_nc;
 
     /* endpoint - tagged operations */
     uct_ep_tag_eager_short_func_t       ep_tag_eager_short;

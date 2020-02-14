@@ -108,6 +108,14 @@ ucs_status_t uct_rc_mlx5_ep_atomic32_fetch(uct_ep_h ep, uct_atomic_op_t opcode,
                                            uint64_t remote_addr, uct_rkey_t rkey,
                                            uct_completion_t *comp);
 
+ucs_status_t uct_rc_mlx5_ep_mem_dereg_nc(uct_ep_h tl_ep, uct_mem_h memh,
+                                         uct_completion_t *comp);
+
+ucs_status_t uct_rc_mlx5_ep_mem_reg_nc(uct_ep_h tl_ep, const uct_iov_t *iov,
+                                       size_t iovcnt, size_t repeat_count,
+                                       uct_md_h *md_p, uct_mem_h *memh_p,
+                                       uct_completion_t *comp);
+
 ucs_status_t uct_rc_mlx5_ep_fence(uct_ep_h tl_ep, unsigned flags);
 
 ucs_status_t uct_rc_mlx5_ep_flush(uct_ep_h tl_ep, unsigned flags, uct_completion_t *comp);
