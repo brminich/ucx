@@ -56,6 +56,8 @@ data_type_desc_t::make(ucp_datatype_t datatype, const void *buf, size_t length,
         m_buf   = buf;
         m_count = length;
         break;
+    case UCP_DATATYPE_STRUCT:
+        /* TODO: */
     default:
         m_buf   = NULL;
         m_count = 0;

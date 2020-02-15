@@ -11,6 +11,7 @@
 #include "dt_contig.h"
 #include "dt_iov.h"
 #include "dt_generic.h"
+#include "dt_struct.h"
 
 #include <ucp/core/ucp_types.h>
 #include <uct/api/uct.h>
@@ -42,6 +43,9 @@ typedef struct ucp_dt_state {
         struct {
             void                  *state;
         } generic;
+        struct {
+            void                  *state;
+        } struct_dt;
     } dt;
 } ucp_dt_state_t;
 

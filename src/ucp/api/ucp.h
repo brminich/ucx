@@ -364,7 +364,7 @@ enum ucp_listener_attr_field {
  */
 enum ucp_dt_type {
     UCP_DATATYPE_CONTIG  = 0,      /**< Contiguous datatype */
-    UCP_DATATYPE_STRIDED = 1,      /**< Strided datatype */
+    UCP_DATATYPE_STRUCT  = 1,      /**< Strided datatype */
     UCP_DATATYPE_IOV     = 2,      /**< Scatter-gather list with multiple pointers */
     UCP_DATATYPE_GENERIC = 7,      /**< Generic datatype with
                                         user-defined pack/unpack routines */
@@ -658,6 +658,20 @@ typedef struct ucp_generic_dt_ops {
     void (*finish)(void *state);
 } ucp_generic_dt_ops_t;
 
+
+/**
+ * @ingroup UCP_DATATYPE
+ * @brief UCP struct data type descriptor
+ *
+ * This structure provides a structured datatype descriptor that
+ * is used for definition of application defined datatypes.
+ */
+
+typedef struct ucp_struct_dt_desc {
+    ptrdiff_t displ;
+    size_t extent;
+    ucp_datatype_t dt;
+} ucp_struct_dt_desc_t;
 
 /**
  * @ingroup UCP_CONFIG
@@ -3059,6 +3073,36 @@ void ucp_request_free(void *request);
 ucs_status_t ucp_dt_create_generic(const ucp_generic_dt_ops_t *ops, void *context,
                                    ucp_datatype_t *datatype_p);
 
+/**
+ * @ingroup UCP_DATATYPE
+ * @brief Create a structured datatype.
+ *
+ * This routine create a structructured datatype object.
+ * The structured datatype is described by a set of field descriptiors provided
+ * through @a desc_ptr @ref ucp_struct_dt_desc_t and @a desc_count.
+ * @a rep-count parameter indicates whether or not an array of structures
+ * is created
+ *
+ * The application is responsible for releasing the @a datatype_p  object using
+ * @ref ucp_dt_destroy "ucp_dt_destroy()" routine.
+ *
+ * @param [in]  desc_ptr     And array of descriptiors specifying structure
+ *                           elements, in particular:
+ *                            - a displacement from the "buffer pointer"
+ *                              provided to communication operations
+ *                            - the desired extent (aka stride)
+ *                            - previously created UCP datatype describing this
+ *                              field content
+ *                           @ref ucp_struct_dt_desc_t.
+ * @param [in]  desc_count   Numebr of field descriptors
+ * @param [in]  rep_count    How many time structure has to be repeated
+ * @param [out] datatype_p   A pointer to datatype object.
+ *
+ * @return Error code as defined by @ref ucs_status_t
+ */
+ucs_status_t ucp_dt_create_struct(ucp_struct_dt_desc_t *desc_ptr,
+                                  size_t desc_count, size_t rep_count,
+                                  ucp_datatype_t *datatype_p);
 
 #if 0
 /* Stride of iovs would represent interleave type:

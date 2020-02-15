@@ -259,6 +259,9 @@ ucp_request_send_state_init(ucp_request_t *req, ucp_datatype_t datatype,
                                            dt_count);
         req->send.state.dt.dt.generic.state = state_gen;
         return;
+    case UCP_DATATYPE_STRUCT:
+        /* TODO: initialize the state for packing */
+        return;
     default:
         ucs_fatal("Invalid data type");
     }
@@ -472,7 +475,12 @@ ucp_request_recv_data_unpack(ucp_request_t *req, const void *data,
                                         req->recv.state.dt.generic.state);
         }
         return status;
-
+    case UCP_DATATYPE_STRUCT:
+        UCS_PROFILE_CALL_VOID(ucp_dt_struct_scatter,
+                              req->recv.buffer, req->recv.datatype,
+                              data, length, offset,
+                              req->recv.state.dt.struct_dt.state);
+        return UCS_OK;
     default:
         ucs_fatal("unexpected datatype=%lx", req->recv.datatype);
     }
