@@ -311,7 +311,7 @@ static int _is_primitive_strided(ucp_dt_struct_t *s)
 {
     size_t i;
     /* Has only 2 levels of nesting */
-    if (!(s->depth = 2)){
+    if (s->depth != 2){
         return 0;
     }
 
