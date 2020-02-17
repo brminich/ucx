@@ -39,7 +39,7 @@ ucp_tag_get_rndv_threshold(const ucp_request_t *req, size_t count,
     case UCP_DATATYPE_GENERIC:
         return rndv_am_thresh;
     case UCP_DATATYPE_STRUCT:
-        /* TODO: ???? */
+        return (size_t)(-1);
     default:
         ucs_error("Invalid data type %lx", req->send.datatype);
     }
