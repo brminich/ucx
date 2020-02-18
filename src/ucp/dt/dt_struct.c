@@ -55,7 +55,6 @@ static void _set_depth(ucp_dt_struct_t *s)
         ucp_struct_dt_desc_t *dsc = &s->desc[i];
         switch (dsc->dt & UCP_DATATYPE_CLASS_MASK) {
         case UCP_DATATYPE_CONTIG:
-            depth = ucs_max(depth, 1);
             break;
         case UCP_DATATYPE_STRUCT:
             depth = ucs_max(depth, ucp_dt_struct_depth(ucp_dt_struct(dsc->dt)));
