@@ -277,8 +277,9 @@ UCS_PROFILE_FUNC(ucs_status_t, ucp_request_memory_reg,
         status = ucp_mem_rereg_mds(context, UCS_BIT(md_idx),
                                    buffer + s->lb_displ,
                                    s->extent,
-                                   UCT_MD_MEM_ACCESS_ALL, NULL,
-                                   UCS_MEMORY_TYPE_HOST, NULL,
+                                   UCT_MD_MEM_ACCESS_ALL |
+                                   UCT_MD_MEM_FLAG_NON_CONTIG_BASE,
+                                   NULL, UCS_MEMORY_TYPE_HOST, NULL,
                                    state->dt.struct_dt.contig.memh,
                                    &state->dt.struct_dt.contig.md_map);
         if (status != UCS_OK) {

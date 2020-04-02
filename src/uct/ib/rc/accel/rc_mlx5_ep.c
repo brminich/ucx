@@ -408,7 +408,7 @@ ucs_status_t uct_rc_mlx5_ep_mem_dereg_nc(uct_ep_h tl_ep, uct_mem_h memh,
 #if HAVE_EXP_UMR
     UCT_RC_MLX5_EP_DECL(tl_ep, iface, ep);
     uct_ib_mem_t *ib_memh = memh;
-    ucs_status_t status;
+    ucs_status_t status   = UCS_OK;
 
     if (!(ib_memh->flags & UCT_IB_MEM_FLAG_NC_MR)) {
         ucs_error("Invalid memh, flags 0x%x", ib_memh->flags);
@@ -417,12 +417,12 @@ ucs_status_t uct_rc_mlx5_ep_mem_dereg_nc(uct_ep_h tl_ep, uct_mem_h memh,
 
     UCT_RC_CHECK_RES(&iface->super, &ep->super);
 
-    status = uct_ib_mlx5_exp_umr_deregister(ib_memh,
+ /*   status = uct_ib_mlx5_exp_umr_deregister(ib_memh,
                                             ep->tx.wq.super.verbs.qp,
                                             iface->super.super.cq[UCT_IB_DIR_TX]);
     if (ucs_unlikely(status != UCS_OK)) {
         ucs_error("failed dereg umr %s", ucs_status_string(status));
-    }
+    }*/
     return status;
 #else
     return UCS_ERR_UNSUPPORTED;

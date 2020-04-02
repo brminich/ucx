@@ -49,7 +49,9 @@ enum {
     UCT_IB_MEM_MULTITHREADED        = UCS_BIT(3), /**< The memory region registration
                                                        handled by chunks in parallel
                                                        threads */
-    UCT_IB_MEM_FLAG_NC_MR           = UCS_BIT(4)
+    UCT_IB_MEM_FLAG_NC_MR           = UCS_BIT(4),
+    UCT_IB_MEM_FLAG_NC_BASE_MR      = UCS_BIT(5),
+    UCT_IB_MEM_FLAG_NEED_DEREG      = UCS_BIT(6)
 };
 
 enum {

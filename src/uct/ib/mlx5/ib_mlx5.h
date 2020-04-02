@@ -466,8 +466,8 @@ uct_ib_mlx5_exp_umr_register(uct_ib_mlx5_md_t *md, uct_ib_mem_t *memh,
                              struct ibv_qp *qp, struct ibv_cq *cq, int sync);
 
 ucs_status_t
-uct_ib_mlx5_exp_umr_deregister(uct_ib_mem_t *memh, struct ibv_qp *qp,
-                               struct ibv_cq *cq);
+uct_ib_mlx5_exp_umr_deregister(uct_ib_mlx5_md_t *md, uct_ib_mem_t *memh,
+                               struct ibv_qp *qp, struct ibv_cq *cq);
 #endif
 
 static inline uint8_t uct_ib_mlx5_iface_get_atomic_mr_id(uct_ib_iface_t *iface)
