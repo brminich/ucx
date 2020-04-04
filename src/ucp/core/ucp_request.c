@@ -268,7 +268,6 @@ UCS_PROFILE_FUNC(ucs_status_t, ucp_request_memory_reg,
                      s, buffer, nc_memh);
             /* SET memh properly */
             state->dt.struct_dt.non_contig.memh[0] = nc_memh;
-            UCS_STATS_UPDATE_COUNTER(s->stats, UCP_DT_STRUCT_STAT_IN_CACHE, 1);
             return UCS_OK;
         }
 
@@ -278,8 +277,7 @@ UCS_PROFILE_FUNC(ucs_status_t, ucp_request_memory_reg,
         status = ucp_mem_rereg_mds(context, UCS_BIT(md_idx),
                                    buffer + s->lb_displ,
                                    s->extent,
-                                   UCT_MD_MEM_ACCESS_ALL |
-                                   UCT_MD_MEM_FLAG_NC_BASE, NULL,
+                                   UCT_MD_MEM_ACCESS_ALL, NULL,
                                    UCS_MEMORY_TYPE_HOST, NULL,
                                    state->dt.struct_dt.contig.memh,
                                    &state->dt.struct_dt.contig.md_map);
@@ -305,7 +303,6 @@ UCS_PROFILE_FUNC(ucs_status_t, ucp_request_memory_reg,
         if (status != UCS_OK) {
             goto err;
         }
-        UCS_STATS_UPDATE_COUNTER(s->stats, UCP_DT_STRUCT_STAT_CREATE, 1);
 
         break;
     default:

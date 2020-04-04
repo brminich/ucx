@@ -22,17 +22,6 @@
 #include <string.h>
 #include <unistd.h>
 
-#if ENABLE_STATS
-static ucs_stats_class_t ucp_dt_struct_stats_class = {
-    .name           = "dt_struct",
-    .num_counters   = UCP_DT_STRUCT_STAT_LAST,
-    .counter_names  = {
-        [UCP_DT_STRUCT_STAT_CREATE]   = "create",
-        [UCP_DT_STRUCT_STAT_IN_CACHE] = "reuse"
-     }
-};
-#endif
-
 ucs_status_t _struct_register_ep_rec(uct_ep_h ep, void *buf, ucp_dt_struct_t *s,
                                      uct_mem_h contig_memh, uct_mem_h* memh);
 
@@ -233,7 +222,6 @@ ucs_status_t ucp_dt_create_struct(ucp_struct_dt_desc_t *desc_ptr,
                                   size_t desc_count, size_t rep_count,
                                   ucp_datatype_t *datatype_p)
 {
-    ucs_status_t status;
     ucp_dt_struct_t *dt;
     size_t i;
 
@@ -281,17 +269,6 @@ ucs_status_t ucp_dt_create_struct(ucp_struct_dt_desc_t *desc_ptr,
     _set_struct_attributes(dt);
     *datatype_p = ((uintptr_t)dt) | UCP_DATATYPE_STRUCT;
 
-
-
-    status = UCS_STATS_NODE_ALLOC(&dt->stats,
-                                  &ucp_dt_struct_stats_class,
-                                  ucs_stats_get_root(), "%p-%d-%d",
-                                  dt, desc_count, rep_count);
-    if (status != UCS_OK) {
-        ucs_error("Can't allocate stats: %s", ucs_status_string(status));
-        return status;
-    }
-
     ucs_info("Created struct dt %p, len %ld (step %ld), depth %ld, uct_iovs %ld, rep count %ld",
              dt, dt->len, dt->step_len, dt->depth, dt->uct_iov_count, dt->rep_count);
 
@@ -313,7 +290,6 @@ void ucp_dt_destroy_struct(ucp_datatype_t datatype_p)
     })
     kh_destroy_inplace(dt_struct, &dt->hash);
     ucs_free(dt->desc);
-    UCS_STATS_NODE_FREE(dt->stats);
     ucs_free(dt);
 }
 

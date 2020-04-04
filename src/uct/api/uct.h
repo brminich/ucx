@@ -664,7 +664,6 @@ enum uct_md_mem_flags {
     UCT_MD_MEM_ACCESS_REMOTE_GET    = UCS_BIT(6), /**< enable remote get access */
     UCT_MD_MEM_ACCESS_REMOTE_ATOMIC = UCS_BIT(7), /**< enable remote atomic access */
     UCT_MD_MEM_FLAG_EMPTY           = UCS_BIT(8), /**< Create empty handle (for UMR) */
-    UCT_MD_MEM_FLAG_NC_BASE         = UCS_BIT(9), /**< Used by UMR */
 
     /** enable local and remote access for all operations */
     UCT_MD_MEM_ACCESS_ALL =  (UCT_MD_MEM_ACCESS_REMOTE_PUT|

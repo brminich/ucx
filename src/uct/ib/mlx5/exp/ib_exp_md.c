@@ -31,11 +31,9 @@ typedef struct uct_ib_mlx5_mem {
 } uct_ib_mlx5_mem_t;
 
 struct uct_ib_umr {
-    uct_ib_mlx5_md_t       *md;
     unsigned               depth;
     int                    is_inline;
     uct_ib_mlx5_mem_t      memh; /* memh for indirect mr*/
-    uct_ib_mlx5_mem_t      *contig_memh;
     struct ibv_exp_send_wr wr;
     size_t                 repeat_count; /* 0 is not allowed; if 1 it is UMR
                                             list, otherwise repeated block */
@@ -383,13 +381,11 @@ uct_ib_mlx5_exp_umr_alloc(uct_ib_mlx5_md_t *md, const uct_iov_t *iov,
     }
     memset(&umr->wr, 0, sizeof(umr->wr));
 
-    umr->md           = md;
     umr->repeat_count = repeat_count;
     umr->depth        = umr_depth;
     umr->iov_count    = iov_count;
     umr->comp.count   = 1; /* for async reg */
     umr->memh.umr     = umr;
-    umr->contig_memh  = ucs_derived_of(iov->memh, uct_ib_mlx5_mem_t); /* assume all iovs use the same memh for now */
 
     if (repeat_count == 1) { /* MRs list */
         status = uct_ib_mlx5_exp_umr_fill_region(umr, iov, iov_count);
@@ -555,8 +551,6 @@ uct_ib_mlx5_exp_umr_deregister(uct_ib_mem_t *memh, struct ibv_qp *qp,
             ucs_fatal("ibv_exp_poll_cq(umr_cq) failed: %m");
         }
     }
-
-    umr->md->super.super.ops->mem_dereg(&umr->md->super.super, &umr->contig_memh->super);
 
     ucs_free(umr);
 

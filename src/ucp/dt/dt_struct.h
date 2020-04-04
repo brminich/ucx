@@ -11,7 +11,6 @@
 #include <ucs/datastruct/khash.h>
 #include <uct/api/uct.h>
 #include <ucp/core/ucp_types.h>
-#include <ucs/stats/stats.h>
 
 typedef struct ucp_dt_struct_hash_value {
     uct_md_h      md;
@@ -37,12 +36,6 @@ int main() {
 }
 */
 
-enum {
-    UCP_DT_STRUCT_STAT_CREATE,
-    UCP_DT_STRUCT_STAT_IN_CACHE,
-    UCP_DT_STRUCT_STAT_LAST
-};
-
 /**
  * Structured datatype structure.
  */
@@ -55,7 +48,6 @@ typedef struct ucp_dt_struct {
     size_t extent; /* total contig space covering the whole type */
     ptrdiff_t lb_displ; /* the lowest displacement from which extent is effective */
     khash_t(dt_struct) hash;
-    UCS_STATS_NODE_DECLARE(stats);
 } ucp_dt_struct_t;
 
 static inline ucp_dt_struct_t* ucp_dt_struct(ucp_datatype_t datatype)
