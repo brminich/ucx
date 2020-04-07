@@ -389,7 +389,6 @@ uct_ib_mlx5_exp_umr_alloc(uct_ib_mlx5_md_t *md, const uct_iov_t *iov,
     umr->iov_count    = iov_count;
     umr->comp.count   = 1; /* for async reg */
     umr->memh.umr     = umr;
-    umr->contig_memh  = ucs_derived_of(iov->memh, uct_ib_mlx5_mem_t); /* assume all iovs use the same memh for now */
 
     if (repeat_count == 1) { /* MRs list */
         status = uct_ib_mlx5_exp_umr_fill_region(umr, iov, iov_count);
@@ -423,12 +422,15 @@ uct_ib_mlx5_exp_umr_register(uct_ib_mlx5_md_t *md, uct_ib_mem_t *memh,
     mrin.attr.exp_access_flags  = UCT_IB_MEM_ACCESS_FLAGS;
     mrin.attr.max_klm_list_size = umr->iov_count;
     umr->memh.mr = ibv_exp_create_mr(&mrin);
-    printf("UMR reg: mr=%p, lkey=%d\n", umr->memh.mr, (int)umr->memh.mr->lkey);
     if (!umr) {
         ucs_error("ibv_exp_create_mr() failed: %m");
         return UCS_ERR_NO_MEMORY;
     }
-/*
+#if 0
+    printf("UMR reg: mr=%p, lkey=%d\n", umr->memh.mr, (int)umr->memh.mr->lkey);
+#endif
+
+    /*
     length = 0;
     for(i = 0; i < umr->iovcnt; i++) {
         if (!iov[i].stride) {
@@ -555,8 +557,6 @@ uct_ib_mlx5_exp_umr_deregister(uct_ib_mem_t *memh, struct ibv_qp *qp,
             ucs_fatal("ibv_exp_poll_cq(umr_cq) failed: %m");
         }
     }
-
-    umr->md->super.super.ops->mem_dereg(&umr->md->super.super, &umr->contig_memh->super);
 
     ucs_free(umr);
 

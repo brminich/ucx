@@ -912,11 +912,6 @@ static ucs_status_t uct_ib_mem_rcache_reg(uct_md_h uct_md, void *address,
         memh->flags |= UCT_IB_MEM_ACCESS_REMOTE_ATOMIC;
     }
 
-    if (flags & UCT_MD_MEM_FLAG_NC_BASE) {
-        /* This region is used by UMR */
-        ucs_rcache_region_hold(md->rcache, rregion);
-    }
-
     *memh_p = memh;
     return UCS_OK;
 }

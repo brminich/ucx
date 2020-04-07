@@ -7,15 +7,19 @@
 #ifndef DT_STRUCT_H_
 #define DT_STRUCT_H_
 
+#include <ucp/core/ucp_context.h>
 #include <ucp/api/ucp.h>
 #include <ucs/datastruct/khash.h>
 #include <uct/api/uct.h>
 #include <ucp/core/ucp_types.h>
 #include <ucs/stats/stats.h>
+#include "dt_common.h"
 
 typedef struct ucp_dt_struct_hash_value {
-    uct_md_h      md;
-    uct_mem_h     memh;
+    ucp_context_t *ucp_ctx;
+    ucp_md_index_t md_idx;
+    ucp_dt_reg_t contig;
+    ucp_dt_reg_t noncontig;
 } ucp_dt_struct_hash_value_t;
 
 KHASH_MAP_INIT_INT64(dt_struct, ucp_dt_struct_hash_value_t)
@@ -104,8 +108,11 @@ static UCS_F_ALWAYS_INLINE uct_mem_h ucp_dt_struct_in_cache(ucp_dt_struct_t *s,
     khiter_t k;
     k = kh_get(dt_struct, &s->hash, (uint64_t)ptr);
 
+#if 0
     printf("STRUCT rcache req: addr=%p, datatype=%p\n", ptr, s);
-    return (k == kh_end(&s->hash)) ? NULL : kh_value(&s->hash, k).memh;
+#endif
+    return (k == kh_end(&s->hash)) ?
+                NULL : kh_value(&s->hash, k).noncontig.memh[0];
 }
 
 
@@ -123,10 +130,11 @@ size_t ucp_dt_struct_scatter(void *dst, ucp_datatype_t dt, const void *src,
 ucs_status_t ucp_dt_struct_register_ep(ucp_ep_h ep, ucp_lane_index_t lane,
                                        void *buf, ucp_datatype_t dt, uct_mem_h
                                        contig_memh, uct_mem_h* memh,
-                                       ucp_md_map_t *md_map);
+                                       ucp_md_map_t *md_map_p);
 
-ucs_status_t ucp_dt_struct_register(uct_md_h md, void *buf, ucp_datatype_t dt,
-                                    uct_mem_h contig_memh, uct_mem_h* memh,
+ucs_status_t ucp_dt_struct_register(ucp_context_t *context, ucp_md_index_t md_idx,
+                                    void *buf, ucp_datatype_t dt,
+                                    uct_mem_h* memh,
                                     ucp_md_map_t *md_map_p);
 
 #endif // DT_STRUCT_H

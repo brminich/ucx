@@ -278,8 +278,7 @@ UCS_PROFILE_FUNC(ucs_status_t, ucp_request_memory_reg,
         status = ucp_mem_rereg_mds(context, UCS_BIT(md_idx),
                                    buffer + s->lb_displ,
                                    s->extent,
-                                   UCT_MD_MEM_ACCESS_ALL |
-                                   UCT_MD_MEM_FLAG_NC_BASE, NULL,
+                                   UCT_MD_MEM_ACCESS_ALL, NULL,
                                    UCS_MEMORY_TYPE_HOST, NULL,
                                    state->dt.struct_dt.contig.memh,
                                    &state->dt.struct_dt.contig.md_map);
@@ -298,8 +297,7 @@ UCS_PROFILE_FUNC(ucs_status_t, ucp_request_memory_reg,
                                            state->dt.struct_dt.non_contig.memh,
                                            &state->dt.struct_dt.non_contig.md_map);
                                               */
-        status = ucp_dt_struct_register(context->tl_mds[md_idx].md, buffer, datatype,
-                                        state->dt.struct_dt.contig.memh[0],
+        status = ucp_dt_struct_register(context, md_idx, buffer, datatype,
                                         state->dt.struct_dt.non_contig.memh,
                                         &state->dt.struct_dt.non_contig.md_map);
         if (status != UCS_OK) {
