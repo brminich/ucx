@@ -109,6 +109,7 @@ ucs_status_t ucs_string_set_print_sorted(const ucs_string_set_t *sset,
                                          const char *sep)
 {
     const char **sorted_strings;
+    ucs_status_t status;
     size_t idx, count;
     char *str;
 
@@ -116,7 +117,8 @@ ucs_status_t ucs_string_set_print_sorted(const ucs_string_set_t *sset,
     count          = kh_size(sset);
     sorted_strings = ucs_calloc(count, sizeof(*sorted_strings), "string_set");
     if (sorted_strings == NULL) {
-        return UCS_ERR_NO_MEMORY;
+        status = UCS_ERR_NO_MEMORY;
+        goto out;
     }
 
     /* collect and sort the strings */
@@ -134,7 +136,9 @@ ucs_status_t ucs_string_set_print_sorted(const ucs_string_set_t *sset,
                                   sorted_strings[idx]);
     }
 
-    ucs_free(sorted_strings);
+    status = UCS_OK;
 
-    return UCS_OK;
+    ucs_free(sorted_strings);
+out:
+    return status;
 }
