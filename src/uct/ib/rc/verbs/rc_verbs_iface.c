@@ -131,11 +131,8 @@ static unsigned uct_rc_verbs_iface_progress(void *arg)
     unsigned count;
 
     count = uct_rc_verbs_iface_poll_rx_common(iface);
-    if (count > 0) {
-        return count;
-    }
 
-    return uct_rc_verbs_iface_poll_tx(iface);
+    return count + uct_rc_verbs_iface_poll_tx(iface);
 }
 
 static void uct_rc_verbs_iface_init_inl_wrs(uct_rc_verbs_iface_t *iface)
