@@ -651,7 +651,7 @@ ucs_config_field_t uct_ud_iface_config_table[] = {
      ucs_offsetof(uct_ud_iface_config_t, max_window), UCS_CONFIG_TYPE_UINT},
 
     {"RX_ASYNC_MAX_POLL", "64",
-     "Max number of receive completions to pick during asynchronous TX poll",
+     "Max number of receive completions to pick during asynchronous RX poll",
      ucs_offsetof(uct_ud_iface_config_t, rx_async_max_poll), UCS_CONFIG_TYPE_UINT},
 
     {NULL}
