@@ -149,6 +149,8 @@ struct ucp_request {
                                 ucp_mem_desc_t *reg_desc; /* pointer to pre-registered buffer,
                                                              used for sending header with
                                                              zcopy protocol */
+                                ucp_recv_desc_t *rts_desc; /* RTS desc, used in fetch flow,
+                                                              by ucp_am_send_reply_nbx */
                             };
                             uint32_t       header_length;
                             uint16_t       am_id;

@@ -22,6 +22,12 @@
 class UcxConnection;
 struct ucx_request;
 
+/* AM_ID */
+typedef enum {
+    AM_COMP_ID,
+    AM_MSG_ID
+} am_id_t;
+
 /*
  * UCX callback for send/receive completion
  */
@@ -92,6 +98,9 @@ protected:
     virtual void dispatch_io_message(UcxConnection* conn, const void *buffer,
                                      size_t length);
 
+    virtual void dispatch_am_message(UcxConnection* conn, const void *buffer,
+                                     void **rx_buffer_p, UcxCallback **cb_p);
+
     // Called when there is a fatal failure on the connection
     virtual void dispatch_connection_error(UcxConnection* conn);
 
@@ -118,6 +127,11 @@ private:
 
     static void iomsg_recv_callback(void *request, ucs_status_t status,
                                     ucp_tag_recv_info *info);
+
+    static ucs_status_t am_recv_callback(void *arg, const void *header,
+                                         size_t header_length,
+                                         void *data, size_t length,
+                                         const ucp_am_recv_param_t *param);
 
     static const std::string sockaddr_str(const struct sockaddr* saddr,
                                           size_t addrlen);
@@ -146,6 +160,9 @@ private:
     void destroy_listener();
 
     void destroy_worker();
+
+    void set_am_handler(uint16_t am_id, ucp_am_recv_callback_t cb,
+                        void *arg);
 
     typedef std::map<uint32_t, UcxConnection*> conn_map_t;
 
@@ -179,7 +196,25 @@ public:
     bool recv_data(void *buffer, size_t length, uint32_t sn,
                    UcxCallback* callback = EmptyCallback::get());
 
+    bool recv_am_data(void * data_desc, void *buffer, size_t length,
+                      UcxCallback* callback = EmptyCallback::get());
+
+    bool send_am(unsigned am_id, const void *meta, size_t meta_length,
+                 const void *buffer, size_t length,
+                 UcxCallback* callback = EmptyCallback::get());
+
+    bool send_am_fetch(unsigned am_id, const void *meta, size_t meta_length,
+                       void *buffer, size_t length,
+                       UcxCallback* callback = EmptyCallback::get());
+
+    bool send_am_reply(void * data_desc, void *buffer, size_t length,
+                       UcxCallback* callback = EmptyCallback::get());
+
     void cancel_all();
+
+    uint32_t remote_id() const {
+        return _remote_conn_id;
+    }
 
     uint32_t id() const {
         return _conn_id;
@@ -197,8 +232,13 @@ private:
 
     static void common_request_callback(void *request, ucs_status_t status);
 
+    static void common_request_callback_nbx(void *request, ucs_status_t status, void *user_data);
+
     static void data_recv_callback(void *request, ucs_status_t status,
                                    ucp_tag_recv_info *info);
+
+    static void am_data_recv_callback(void *request, ucs_status_t status,
+                                      size_t length, void *user_data);
 
     static void error_callback(void *arg, ucp_ep_h ep, ucs_status_t status);
 

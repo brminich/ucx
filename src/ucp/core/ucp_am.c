@@ -701,6 +701,85 @@ static void ucp_am_send_req_init(ucp_request_t *req, ucp_ep_h ep,
                                      req->send.buffer, &req->send.state.dt);
 }
 
+static void ucp_am_recv_req_init(ucp_request_t *req, ucp_worker_h worker,
+                                 void *buffer, ucp_datatype_t datatype,
+                                 size_t count)
+{
+    req->status        = UCS_OK;
+    req->recv.worker   = worker;
+    req->recv.buffer   = buffer;
+    req->flags         = UCP_REQUEST_FLAG_RECV_AM;
+    req->recv.datatype = datatype;
+    ucp_dt_recv_state_init(&req->recv.state, buffer, datatype, count);
+    req->recv.length   = ucp_dt_length(datatype, count, buffer,
+                                       &req->recv.state);
+    req->recv.mem_type = UCS_MEMORY_TYPE_HOST;
+}
+
+static ucs_status_ptr_t ucp_am_send_start_fetch(ucp_request_t *rreq, ucp_ep_h ep,
+                                                const void *header,
+                                                size_t header_length,
+                                                uint32_t flags, uint16_t am_id,
+                                                const ucp_request_param_t *param)
+{
+    ucp_datatype_t datatype;
+    ucp_request_t *sreq;
+    ucs_status_ptr_t ret;
+    ucs_status_t status;
+
+    if (ucs_unlikely(!ucs_test_all_flags(param->op_attr_mask,
+                                         UCP_OP_ATTR_FIELD_REPLY_BUFFER |
+                                         UCP_OP_ATTR_FIELD_REPLY_COUNT))) {
+        ret = UCS_STATUS_PTR(UCS_ERR_INVALID_PARAM);
+        goto err;
+    }
+
+    datatype = (param->op_attr_mask & UCP_OP_ATTR_FIELD_REPLY_DATATYPE) ?
+               param->reply_datatype : ucp_dt_make_contig(1);
+
+    ucp_am_recv_req_init(rreq, ep->worker, param->reply_buffer, datatype,
+                         param->reply_count);
+    ucp_request_set_callback_param(param, recv_am, rreq, recv.am);
+
+    sreq = ucp_request_get_param(ep->worker, param,
+                                 {ret = UCS_STATUS_PTR(UCS_ERR_NO_MEMORY);
+                                  goto err;});
+
+    ucp_am_send_req_init(sreq, ep, header, header_length, param->reply_buffer,
+                         datatype, param->reply_count, flags, am_id);
+
+    sreq->send.uct.func = ucp_proto_progress_am_rndv_rts;
+    sreq->send.msg_proto.rreq_id = ucp_worker_get_request_id(ep->worker, rreq,
+                                                    ucp_ep_use_indirect_id(ep));
+  //  sreq->send.msg_proto.am.reg_desc = NULL;
+
+    ucs_print("AM start_fetch to %s buffer %p length %zu, rreq_id %zu",
+              ucp_ep_peer_name(sreq->send.ep), sreq->send.buffer,
+              sreq->send.length, sreq->send.msg_proto.rreq_id);
+
+    if (UCP_DT_IS_CONTIG(datatype)) {
+        status = ucp_request_send_buffer_reg(sreq,
+                                             ucp_ep_config(ep)->key.rma_bw_md_map,
+                                             UCT_MD_MEM_FLAG_HIDE_ERRORS);
+        if (status != UCS_OK) {
+            ret = UCS_STATUS_PTR(status);
+            ucp_request_put(sreq);
+            goto err;
+        }
+    }
+
+    status = ucp_request_send(sreq, 0);
+    if (sreq->flags & UCP_REQUEST_FLAG_COMPLETED) {
+        ucp_request_put(sreq);
+    }
+
+    return rreq + 1;
+
+err:
+    ucp_request_put(rreq);
+    return ret;
+}
+
 static UCS_F_ALWAYS_INLINE ucs_status_ptr_t
 ucp_am_send_req(ucp_request_t *req, size_t count,
                 const ucp_ep_msg_config_t *msg_config,
@@ -794,8 +873,7 @@ ucp_am_try_send_short(ucp_ep_h ep, uint16_t id, uint32_t flags,
                       const void *header, size_t header_length,
                       const void *buffer, size_t length)
 {
-    if (ucs_likely(!(flags & UCP_AM_SEND_REPLY) &&
-                   ((length == 0) || (header_length == 0)) &&
+    if (ucs_likely((flags == 0) && ((length == 0) || (header_length == 0)) &&
                    ((ssize_t)(length + header_length) <=
                     ucp_ep_config(ep)->am.max_short))) {
         return ucp_am_send_short(ep, id, flags, header, header_length,
@@ -860,6 +938,12 @@ UCS_PROFILE_FUNC(ucs_status_ptr_t, ucp_am_send_nbx,
                                 {ret = UCS_STATUS_PTR(UCS_ERR_NO_MEMORY);
                                  goto out;});
 
+    if (flags & UCP_AM_SEND_GET_REPLY) {
+        ret = ucp_am_send_start_fetch(req, ep, header, header_length, flags, id,
+                                      param);
+        goto out;
+    }
+
     ucp_am_send_req_init(req, ep, header, header_length, buffer, datatype,
                          count, flags, id);
 
@@ -873,6 +957,62 @@ UCS_PROFILE_FUNC(ucs_status_ptr_t, ucp_am_send_nbx,
 
 out:
     UCP_WORKER_THREAD_CS_EXIT_CONDITIONAL(ep->worker);
+    return ret;
+}
+
+UCS_PROFILE_FUNC(ucs_status_ptr_t, ucp_am_send_reply_nbx,
+                 (worker, data_desc, buffer, count, param),
+                 ucp_worker_h worker, void *data_desc, const void *buffer,
+                 size_t count, const ucp_request_param_t *param)
+{
+    ucp_am_rndv_rts_hdr_t *rts = data_desc;
+    ucp_datatype_t datatype    = ucp_request_param_datatype(param);
+    ucp_ep_h ep                = ucp_worker_get_ep_by_id(worker,
+                                                         rts->super.sreq.ep_id);
+    ucs_status_ptr_t ret;
+    ucp_request_t *req;
+    ucs_status_t status;
+    uint32_t flags;
+
+    UCP_CONTEXT_CHECK_FEATURE_FLAGS(worker->context, UCP_FEATURE_AM,
+                                    return UCS_STATUS_PTR(UCS_ERR_INVALID_PARAM));
+    UCP_WORKER_THREAD_CS_ENTER_CONDITIONAL(worker);
+
+    ucs_assert(worker == ep->worker);
+
+    flags = ucp_request_param_flags(param);
+    req   = ucp_request_get_param(worker, param,
+                                  {ret = UCS_STATUS_PTR(UCS_ERR_NO_MEMORY);
+                                   goto out;});
+
+    ucp_am_send_req_init(req, ep, NULL, 0ul, buffer, datatype, count, flags, 0);
+    req->send.msg_proto.am.rts_desc = (ucp_recv_desc_t*)rts - 1;
+
+    if (UCP_DT_IS_CONTIG(req->send.datatype)) {
+        status    = ucp_request_send_buffer_reg(req,
+                                                ucp_ep_config(ep)->key.rma_bw_md_map,
+                                                UCT_MD_MEM_FLAG_HIDE_ERRORS);
+        if (status != UCS_OK) {
+            ret = UCS_STATUS_PTR(status);
+            goto out;
+        }
+    }
+    ucp_request_set_send_callback_param(param, req, send);
+
+    ucs_print("rep_nbx: req %zu, addr %zu, size %zu",
+              rts->super.sreq.req_id, rts->super.address, rts->super.size);
+    status = ucp_rndv_rtr_handler_common(req, rts->super.sreq.req_id,
+                                         rts->super.address, rts->super.size,
+                                         0ul, rts + 1);
+    if (ucs_unlikely(status != UCS_OK)) {
+        ucp_request_put(req);
+        ret = UCS_STATUS_PTR(status);
+        goto out;
+    }
+
+    ret = req + 1;
+out:
+    UCP_WORKER_THREAD_CS_EXIT_CONDITIONAL(worker);
     return ret;
 }
 
@@ -922,20 +1062,12 @@ UCS_PROFILE_FUNC(ucs_status_ptr_t, ucp_am_recv_data_nbx,
                                  goto out;});
 
     /* Mark that rendezvous is started on this data descriptor */
-    desc->flags       |= UCP_RECV_DESC_FLAG_RNDV_STARTED;
+    desc->flags |= UCP_RECV_DESC_FLAG_RNDV_STARTED;
 
     /* Initialize receive request */
-    datatype           = ucp_request_param_datatype(param);
-    req->status        = UCS_OK;
-    req->recv.worker   = worker;
-    req->recv.buffer   = buffer;
-    req->flags         = UCP_REQUEST_FLAG_RECV_AM;
-    req->recv.datatype = datatype;
-    ucp_dt_recv_state_init(&req->recv.state, buffer, datatype, count);
-    req->recv.length   = ucp_dt_length(datatype, count, buffer,
-                                       &req->recv.state);
-    req->recv.mem_type = UCS_MEMORY_TYPE_HOST;
-    req->recv.am.desc  = (ucp_recv_desc_t*)rts - 1;
+    datatype          = ucp_request_param_datatype(param);
+    ucp_am_recv_req_init(req, worker, buffer, datatype, count);
+    req->recv.am.desc = (ucp_recv_desc_t*)rts - 1;
 
     ucp_request_set_callback_param(param, recv_am, req, recv.am);
 
@@ -1281,7 +1413,10 @@ ucs_status_t ucp_am_rndv_process_rts(void *arg, void *data, size_t length,
     }
 
     am_cb           = &ucs_array_elem(&worker->am, am_id);
-    param.recv_attr = UCP_AM_RECV_ATTR_FLAG_DATA | UCP_AM_RECV_ATTR_FLAG_RNDV;
+    param.recv_attr = UCP_AM_RECV_ATTR_FLAG_DATA |
+                      ((rts->am.flags & UCP_AM_SEND_GET_REPLY) ?
+                       UCP_AM_RECV_ATTR_FLAG_SEND_REPLY :
+                       UCP_AM_RECV_ATTR_FLAG_RNDV);
     param.reply_ep  = ucp_am_hdr_reply_ep(worker, rts->am.flags,
                                           rts->super.sreq.ep_id);
     status          = am_cb->cb(am_cb->context, hdr, rts->am.header_length,
@@ -1295,6 +1430,7 @@ ucs_status_t ucp_am_rndv_process_rts(void *arg, void *data, size_t length,
     }
 
     /* User does not want to receive the data, fall through to send ATS. */
+    ucs_print("Got RTS reply %d", !!(rts->am.flags & UCP_AM_SEND_GET_REPLY));
 
 out_send_ats:
     /* Some error occured or user does not need this data. Send ATS back to the

@@ -289,6 +289,12 @@ UCS_PROFILE_FUNC_VOID(ucp_rndv_complete_rma_put_zcopy, (sreq),
 
     ucp_request_send_buffer_dereg(sreq);
     ucp_request_complete_send(sreq, UCS_OK);
+
+    if ((sreq->flags & UCP_REQUEST_FLAG_SEND_AM) &&
+        (sreq->send.msg_proto.am.flags & UCP_AM_SEND_GET_REPLY)) {
+
+        ucp_recv_desc_release(sreq->send.msg_proto.am.rts_desc);
+    }
 }
 
 static void ucp_rndv_send_atp(ucp_request_t *sreq,
@@ -1516,7 +1522,9 @@ UCS_PROFILE_FUNC_VOID(ucp_rndv_put_pipeline_frag_get_completion, (self),
 }
 
 static ucs_status_t ucp_rndv_send_start_put_pipeline(ucp_request_t *sreq,
-                                                     ucp_rndv_rtr_hdr_t *rndv_rtr_hdr)
+                                                     ucs_ptr_map_key_t rreq_id,
+                                                     uint64_t address, size_t size,
+                                                     size_t base_offset)
 {
     ucp_ep_h ep             = sreq->send.ep;
     ucp_ep_config_t *config = ucp_ep_config(ep);
@@ -1546,9 +1554,9 @@ static ucs_status_t ucp_rndv_send_start_put_pipeline(ucp_request_t *sreq,
 
     min_zcopy        = config->rndv.min_put_zcopy;
     max_zcopy        = config->rndv.max_put_zcopy;
-    rndv_size        = ucs_min(rndv_rtr_hdr->size, sreq->send.length);
+    rndv_size        = ucs_min(size, sreq->send.length);
     max_frag_size    = ucs_min(context->config.ext.rndv_frag_size, max_zcopy);
-    rndv_base_offset = rndv_rtr_hdr->offset;
+    rndv_base_offset = base_offset;
 
     /* initialize send req state on first fragment rndv request */
     if (rndv_base_offset == 0) {
@@ -1570,8 +1578,8 @@ static ucs_status_t ucp_rndv_send_start_put_pipeline(ucp_request_t *sreq,
     fsreq->send.lane                    = sreq->send.lane;
     fsreq->send.rndv_put.rkey           = sreq->send.rndv_put.rkey;
     fsreq->send.rndv_put.uct_rkey       = sreq->send.rndv_put.uct_rkey;
-    fsreq->send.rndv_put.rreq_remote_id = rndv_rtr_hdr->rreq_id;
-    fsreq->send.rndv_put.remote_address = rndv_rtr_hdr->address;
+    fsreq->send.rndv_put.rreq_remote_id = rreq_id;
+    fsreq->send.rndv_put.remote_address = address;
     fsreq->send.rndv_put.sreq           = sreq;
     fsreq->send.state.dt.offset         = 0;
 
@@ -1606,8 +1614,8 @@ static ucs_status_t ucp_rndv_send_start_put_pipeline(ucp_request_t *sreq,
             freq->send.rndv_put.sreq             = fsreq;
             freq->send.rndv_put.rkey             = fsreq->send.rndv_put.rkey;
             freq->send.rndv_put.uct_rkey         = fsreq->send.rndv_put.uct_rkey;
-            freq->send.rndv_put.remote_address   = rndv_rtr_hdr->address + offset;
-            freq->send.rndv_put.rreq_remote_id   = rndv_rtr_hdr->rreq_id;
+            freq->send.rndv_put.remote_address   = address + offset;
+            freq->send.rndv_put.rreq_remote_id   = rreq_id;
             freq->send.lane                      = fsreq->send.lane;
             freq->send.mdesc                     = NULL;
 
@@ -1632,6 +1640,7 @@ UCS_PROFILE_FUNC(ucs_status_t, ucp_rndv_atp_handler,
     ucp_reply_hdr_t *rep_hdr = data;
     ucp_request_t *req       = ucp_worker_get_request_by_id(arg,
                                                             rep_hdr->req_id);
+    ucp_request_t *rreq;
 
     if (req->flags & UCP_REQUEST_FLAG_RNDV_FRAG) {
         /* received ATP for frag RTR request */
@@ -1641,29 +1650,39 @@ UCS_PROFILE_FUNC(ucs_status_t, ucp_rndv_atp_handler,
                                         ((ucp_mem_desc_t*) req->recv.buffer - 1),
                                         req->recv.length, req->recv.frag.offset);
     } else {
+        if (req->flags & UCP_REQUEST_FLAG_SEND_AM) {
+        ucs_print("ATP received, reqid %zu, rreqid %zu stat %s ",
+                  rep_hdr->req_id, req->send.msg_proto.rreq_id,
+                  ucs_status_string(rep_hdr->status));
+        rreq = ucp_worker_get_request_by_id(arg, req->send.msg_proto.rreq_id);
         UCS_PROFILE_REQUEST_EVENT(req, "rndv_atp_recv", 0);
         ucp_worker_del_request_id(arg, rep_hdr->req_id);
-        ucp_rndv_zcopy_recv_req_complete(req, UCS_OK);
+        ucp_rndv_zcopy_recv_req_complete(rreq, UCS_OK);
+        ucp_request_send_buffer_dereg(req);
+        ucp_request_put(req);
+        } else {
+         UCS_PROFILE_REQUEST_EVENT(req, "rndv_atp_recv", 0);
+         ucp_worker_del_request_id(arg, rep_hdr->req_id);
+         ucp_rndv_zcopy_recv_req_complete(req, UCS_OK);
+        }
     }
 
     return UCS_OK;
 }
 
-UCS_PROFILE_FUNC(ucs_status_t, ucp_rndv_rtr_handler,
-                 (arg, data, length, flags),
-                 void *arg, void *data, size_t length, unsigned flags)
+ucs_status_t ucp_rndv_rtr_handler_common(ucp_request_t *sreq,
+                                         ucs_ptr_map_key_t rreq_id,
+                                         uint64_t address, size_t size,
+                                         size_t offset, void *rkey_buf)
 {
-    ucp_rndv_rtr_hdr_t *rndv_rtr_hdr = data;
-    ucp_request_t *sreq              = ucp_worker_get_request_by_id(arg,
-                                                                    rndv_rtr_hdr->sreq_id);
-    ucp_ep_h ep                      = sreq->send.ep;
-    ucp_ep_config_t *ep_config       = ucp_ep_config(ep);
-    ucp_context_h context            = ep->worker->context;
+    ucp_ep_h ep                = sreq->send.ep;
+    ucp_ep_config_t *ep_config = ucp_ep_config(ep);
+    ucp_context_h context      = ep->worker->context;
     ucs_status_t status;
     int is_pipeline_rndv;
 
     ucp_trace_req(sreq, "received rtr address 0x%"PRIx64" remote rreq_id"
-                  "0x%"PRIx64, rndv_rtr_hdr->address, rndv_rtr_hdr->rreq_id);
+                  "0x%"PRIx64, address, rreq_id);
     UCS_PROFILE_REQUEST_EVENT(sreq, "rndv_rtr_recv", 0);
 
     if (sreq->flags & UCP_REQUEST_FLAG_OFFLOADED) {
@@ -1672,16 +1691,15 @@ UCS_PROFILE_FUNC(ucs_status_t, ucp_rndv_rtr_handler,
         ucp_tag_offload_cancel_rndv(sreq);
     }
 
-    if (UCP_DT_IS_CONTIG(sreq->send.datatype) && rndv_rtr_hdr->address) {
-        status = ucp_ep_rkey_unpack(ep, rndv_rtr_hdr + 1,
-                                    &sreq->send.rndv_put.rkey);
+    if (UCP_DT_IS_CONTIG(sreq->send.datatype) && address) {
+        status = ucp_ep_rkey_unpack(ep, rkey_buf, &sreq->send.rndv_put.rkey);
         if (status != UCS_OK) {
             ucs_fatal("failed to unpack rendezvous remote key received from %s: %s",
                       ucp_ep_peer_name(ep), ucs_status_string(status));
         }
 
         is_pipeline_rndv = ((!UCP_MEM_IS_ACCESSIBLE_FROM_CPU(sreq->send.mem_type) ||
-                             (sreq->send.length != rndv_rtr_hdr->size)) &&
+                             (sreq->send.length != size)) &&
                             (context->config.ext.rndv_mode != UCP_RNDV_MODE_PUT_ZCOPY));
 
         sreq->send.lane = ucp_rkey_find_rma_lane(ep->worker->context, ep_config,
@@ -1698,7 +1716,8 @@ UCS_PROFILE_FUNC(ucs_status_t, ucp_rndv_rtr_handler,
              * PUT_ZCOPY anyway.
              */
             if (is_pipeline_rndv) {
-                status = ucp_rndv_send_start_put_pipeline(sreq, rndv_rtr_hdr);
+                status = ucp_rndv_send_start_put_pipeline(sreq, rreq_id, address,
+                                                          size, offset);
                 if (status != UCS_ERR_UNSUPPORTED) {
                     return status;
                 }
@@ -1714,8 +1733,8 @@ UCS_PROFILE_FUNC(ucs_status_t, ucp_rndv_rtr_handler,
                 ucp_request_send_state_reset(sreq, ucp_rndv_put_completion,
                                              UCP_REQUEST_SEND_PROTO_RNDV_PUT);
                 sreq->send.uct.func                = ucp_rndv_progress_rma_put_zcopy;
-                sreq->send.rndv_put.rreq_remote_id = rndv_rtr_hdr->rreq_id;
-                sreq->send.rndv_put.remote_address = rndv_rtr_hdr->address;
+                sreq->send.rndv_put.rreq_remote_id = rreq_id;
+                sreq->send.rndv_put.remote_address = address;
                 sreq->send.mdesc                   = NULL;
                 goto out_send;
             } else {
@@ -1729,7 +1748,7 @@ UCS_PROFILE_FUNC(ucs_status_t, ucp_rndv_rtr_handler,
     ucp_trace_req(sreq, "using rdnv_data protocol");
 
     /* switch to AM */
-    sreq->send.msg_proto.rreq_id = rndv_rtr_hdr->rreq_id;
+    sreq->send.msg_proto.rreq_id = rreq_id;
 
     if (UCP_DT_IS_CONTIG(sreq->send.datatype) &&
         (sreq->send.length >=
@@ -1757,6 +1776,19 @@ UCS_PROFILE_FUNC(ucs_status_t, ucp_rndv_rtr_handler,
 out_send:
     ucp_request_send(sreq, 0);
     return UCS_OK;
+}
+
+UCS_PROFILE_FUNC(ucs_status_t, ucp_rndv_rtr_handler,
+                 (arg, data, length, flags),
+                 void *arg, void *data, size_t length, unsigned flags)
+{
+    ucp_rndv_rtr_hdr_t *rndv_rtr_hdr = data;
+    ucp_request_t *sreq              = ucp_worker_get_request_by_id(arg,
+                                                                    rndv_rtr_hdr->sreq_id);
+
+    return ucp_rndv_rtr_handler_common(sreq, rndv_rtr_hdr->rreq_id,
+                                       rndv_rtr_hdr->address, rndv_rtr_hdr->size,
+                                       rndv_rtr_hdr->offset, rndv_rtr_hdr + 1);
 }
 
 UCS_PROFILE_FUNC(ucs_status_t, ucp_rndv_data_handler,

@@ -68,4 +68,9 @@ void ucp_rndv_receive(ucp_worker_h worker, ucp_request_t *rreq,
 void ucp_rndv_req_send_ats(ucp_request_t *rndv_req, ucp_request_t *rreq,
                            ucs_ptr_map_key_t remote_req_id, ucs_status_t status);
 
+ucs_status_t ucp_rndv_rtr_handler_common(ucp_request_t *sreq,
+                                         ucs_ptr_map_key_t rreq_id,
+                                         uint64_t address, size_t size,
+                                         size_t offset, void *rkey_buf);
+
 #endif

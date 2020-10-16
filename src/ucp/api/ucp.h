@@ -486,8 +486,17 @@ enum ucp_send_am_flags {
                                          receiver. */
     UCP_AM_SEND_EAGER = UCS_BIT(1), /**< Force UCP to use only eager protocol
                                          for AM sends. */
-    UCP_AM_SEND_RNDV  = UCS_BIT(2)  /**< Force UCP to use only rendezvous protocol
+    UCP_AM_SEND_RNDV  = UCS_BIT(2),  /**< Force UCP to use only rendezvous protocol
                                          for AM sends. */
+    UCP_AM_SEND_GET_REPLY  = UCS_BIT(3)  /**< Tells @ref ucp_am_send_nbx to send
+                                              request for data. In this case reply
+                                              buffer and reply count must be
+                                              specified in @ref ucp_request_param_t
+                                              passed to @ref ucp_am_send_nbx. Also,
+                                              like UCP_AM_SEND_REPLY, this flag
+                                              ensures that relevant reply endpoint
+                                              to be passed to the data callback on
+                                              the receiver. */
 };
 
 
@@ -592,6 +601,8 @@ typedef enum {
     UCP_OP_ATTR_FIELD_FLAGS         = UCS_BIT(4),  /**< operation-specific flags */
     UCP_OP_ATTR_FIELD_REPLY_BUFFER  = UCS_BIT(5),  /**< reply_buffer field */
     UCP_OP_ATTR_FIELD_MEMORY_TYPE   = UCS_BIT(6),  /**< memory type field */
+    UCP_OP_ATTR_FIELD_REPLY_COUNT    = UCS_BIT(7),  /**< reply_count field */
+    UCP_OP_ATTR_FIELD_REPLY_DATATYPE = UCS_BIT(8),  /**< reply_datatype field */
 
     UCP_OP_ATTR_FLAG_NO_IMM_CMPL    = UCS_BIT(16), /**< deny immediate completion */
     UCP_OP_ATTR_FLAG_FAST_CMPL      = UCS_BIT(17), /**< expedite local completion,
@@ -638,7 +649,17 @@ typedef enum {
      * data by calling @ref ucp_am_recv_data_nbx routine. This flag is mutually
      * exclusive with @a UCP_AM_RECV_ATTR_FLAG_DATA.
      */
-    UCP_AM_RECV_ATTR_FLAG_RNDV         = UCS_BIT(17)
+    UCP_AM_RECV_ATTR_FLAG_RNDV         = UCS_BIT(17),
+
+    /**
+     * Indicates that the remote side expects to get a reply message. The reply
+     * can be sent by calling @ref ucp_am_send_reply_nbx() function. In this
+     * case @a data parameter of the @ref ucp_am_recv_callback_t points to the
+     * internal UCP descriptor, representing target buffer for sending data.
+     * This descriptor needs to be passed to @ref ucp_am_send_reply_nbx when
+     * sending reply back to the target.
+     */
+    UCP_AM_RECV_ATTR_FLAG_SEND_REPLY   = UCS_BIT(18)
 } ucp_am_recv_attr_t;
 
 
@@ -1413,6 +1434,18 @@ typedef struct {
      * which means the memory type will be detected internally.
      */
     ucs_memory_type_t memory_type;
+
+    /**
+     * Number of elements to receive into @a reply_buffer.
+     */
+    size_t         reply_count;
+
+    /**
+     * Datatype descriptor for the elements in the @a reply_buffer. In case the
+     * op_attr_mask & UCP_OP_ATTR_FIELD_REPLY_DATATYPE bit is not set, then use
+     * default datatype ucp_dt_make_contig(1).
+     */
+    ucp_datatype_t reply_datatype;
 } ucp_request_param_t;
 
 
@@ -2774,6 +2807,49 @@ ucs_status_ptr_t ucp_am_send_nbx(ucp_ep_h ep, unsigned id,
                                  const void *header, size_t header_length,
                                  const void *buffer, size_t count,
                                  const ucp_request_param_t *param);
+
+
+/**
+ * @ingroup UCP_COMM
+ * @brief Send data as a reply to Active Message data request.
+ *
+ * This routine sends data in reply to Active Message data request
+ * (which can be sent by @ref ucp_am_send_nbx with UCP_AM_SEND_GET_REPLY flag
+ * set in request parameters). If the operation completes immediately, then the
+ * routine returns NULL and the callback function is ignored, even if specified.
+ * Otherwise, if no error is reported and a callback is requested (i.e. the
+ * UCP_OP_ATTR_FIELD_CALLBACK flag is set in the op_attr_mask field of
+ * @a param), then the UCP library will schedule invocation of the callback
+ * routine @a param->cb.send upon completion of the operation.
+ *
+ * @note If UCP_OP_ATTR_FLAG_NO_IMM_CMPL flag is set in the op_attr_mask field
+ *       of @a param, then the operation will return a request handle, even if
+ *       it completes immediately.
+ * @note Currently Active Message API supports communication operations with
+ *       host memory only.
+ * @note Active Message specific flags defined by @ref ucp_send_am_flags are
+ *       not relevant for this operation, because it is just a reply to Active
+ *       Message data request.
+ *
+ * @param [in]  data_desc     Data descriptor, provided in
+                              @ref ucp_am_recv_callback_t routine.
+ * @param [in]  buffer        Pointer to the data to be sent to the target node.
+ * @param [in]  count         Number of elements to send.
+ * @param [in]  param         Operation parameters, see @ref ucp_request_param_t.
+ *
+ * @return NULL                 - Active Message data was sent immediately.
+ * @return UCS_PTR_IS_ERR(_ptr) - Error sending Active Message data.
+ * @return otherwise            - Operation was scheduled for send and can be
+ *                                completed at any point in time. The request
+ *                                handle is returned to the application in order
+ *                                to track progress of the message. If user
+ *                                request was not provided in @a param->request,
+ *                                the application is responsible for releasing
+ *                                the handle using @ref ucp_request_free routine.
+ */
+ucs_status_ptr_t ucp_am_send_reply_nbx(ucp_worker_h worker, void *data_desc,
+                                       const void *buffer, size_t count,
+                                       const ucp_request_param_t *param);
 
 
 /**

@@ -644,6 +644,7 @@ public:
         ASSERT_FALSE(self->m_am_received);
         self->m_am_received = true;
         EXPECT_UCS_OK(status);
+        ucs_print("AM RX cb, len %zu", length);
         EXPECT_EQ(self->m_rx_buf, std::vector<char>(length, 'd'));
     }
 
@@ -672,6 +673,48 @@ public:
         *data_desc_p = data;
 
         return UCS_INPROGRESS;
+    }
+
+    ucs_status_t am_fetch_data_handler(const void *header, size_t header_length,
+                                       void *data, size_t length,
+                                       const ucp_am_recv_param_t *rx_param)
+    {
+        EXPECT_TRUE(rx_param->recv_attr  & UCP_AM_RECV_ATTR_FLAG_SEND_REPLY);
+        //EXPECT_FALSE(rx_param->recv_attr & UCP_AM_RECV_ATTR_FLAG_DATA);
+        EXPECT_FALSE(m_am_received);
+        ucs_print("Got fetchREQ, hl %zu, data len %zu", header_length, length);
+
+        m_rx_buf.resize(length, 'd');
+
+        m_rx_dt_desc.make(m_rx_dt, &m_rx_buf[0], length);
+
+        ucp_request_param_t params;
+        params.op_attr_mask =// UCP_OP_ATTR_FIELD_CALLBACK  |
+                              UCP_OP_ATTR_FIELD_USER_DATA |
+                              UCP_OP_ATTR_FIELD_DATATYPE  |
+                              UCP_OP_ATTR_FLAG_NO_IMM_CMPL;
+        params.datatype     = m_rx_dt_desc.dt();
+        //params.cb.recv_am   = am_data_recv_cb;
+        params.user_data    = this;
+        ucs_status_ptr_t sp = ucp_am_send_reply_nbx(receiver().worker(),
+                                                      data, m_rx_dt_desc.buf(),
+                                                      m_rx_dt_desc.count(),
+                                                      &params);
+        EXPECT_TRUE(UCS_PTR_IS_PTR(sp)) << "sp is: " << sp;
+        ucp_request_release(sp);
+
+        return UCS_INPROGRESS;
+    }
+
+    static ucs_status_t am_fetch_data_cb(void *arg, const void *header,
+                                         size_t header_length, void *data,
+                                         size_t length,
+                                         const ucp_am_recv_param_t *param)
+    {
+        test_ucp_am_nbx_rndv *self = reinterpret_cast<test_ucp_am_nbx_rndv*>(arg);
+
+        return self->am_fetch_data_handler(header, header_length, data, length,
+                                           param);
     }
 
     ucp_datatype_t               m_rx_dt;
@@ -744,6 +787,34 @@ UCS_TEST_P(test_ucp_am_nbx_rndv, deferred_reject_rndv)
 
     ucp_am_data_release(receiver().worker(), data_desc);
     EXPECT_EQ(UCS_OK, request_wait(sptr));
+}
+
+UCS_TEST_P(test_ucp_am_nbx_rndv, fetch_data)
+{
+    skip_loopback();
+
+    set_am_data_handler(receiver(), TEST_AM_NBX_ID, am_fetch_data_cb, this);
+
+    std::vector<char> buf(10000, 0);
+    ucp_request_param_t param;
+    param.op_attr_mask = UCP_OP_ATTR_FIELD_CALLBACK     |
+                         UCP_OP_ATTR_FIELD_USER_DATA    |
+                         UCP_OP_ATTR_FIELD_FLAGS        |
+                         UCP_OP_ATTR_FIELD_REPLY_BUFFER |
+                         UCP_OP_ATTR_FIELD_REPLY_COUNT;
+    param.flags        = UCP_AM_SEND_GET_REPLY;
+    param.reply_buffer = buf.data();
+    param.reply_count  = buf.size();
+    param.cb.recv_am   = am_data_recv_cb;
+    param.user_data    = this;
+
+    m_am_received = false;
+
+    ucs_status_ptr_t sptr = ucp_am_send_nbx(sender().ep(), TEST_AM_NBX_ID,
+                                            NULL, 0ul, buf.data(),
+                                            buf.size(), &param);
+    request_wait(sptr);
+    EXPECT_TRUE(m_am_received);
 }
 
 UCP_INSTANTIATE_TEST_CASE(test_ucp_am_nbx_rndv)

@@ -53,7 +53,7 @@ UcxLog::~UcxLog()
     }
 }
 
-#define UCX_LOG UcxLog("[UCX]", true)
+#define UCX_LOG UcxLog("[UCX]", false)
 
 UcxContext::UcxContext(size_t iomsg_size) :
     _context(NULL), _worker(NULL), _listener(NULL), _iomsg_recv_request(NULL),
@@ -83,8 +83,9 @@ bool UcxContext::init()
     ucp_params.field_mask   = UCP_PARAM_FIELD_FEATURES |
                               UCP_PARAM_FIELD_REQUEST_INIT |
                               UCP_PARAM_FIELD_REQUEST_SIZE;
-    ucp_params.features     = UCP_FEATURE_TAG |
-                              UCP_FEATURE_STREAM;
+    ucp_params.features     = UCP_FEATURE_TAG    |
+                              UCP_FEATURE_STREAM |
+                              UCP_FEATURE_AM;
     ucp_params.request_init = request_init;
     ucp_params.request_size = sizeof(ucx_request);
     ucs_status_t status = ucp_init(&ucp_params, NULL, &_context);
@@ -108,6 +109,8 @@ bool UcxContext::init()
     }
 
     UCX_LOG << "created worker " << _worker;
+
+    set_am_handler(AM_MSG_ID, am_recv_callback, this);
 
     recv_io_message();
     return true;
@@ -163,6 +166,12 @@ void UcxContext::dispatch_new_connection(UcxConnection *conn)
 
 void UcxContext::dispatch_io_message(UcxConnection* conn, const void *buffer,
                                      size_t length)
+{
+    // To be implemented in a subclass
+}
+
+void UcxContext::dispatch_am_message(UcxConnection* conn, const void *buffer,
+                         void **rx_buffer_p, UcxCallback **cb_p)
 {
     // To be implemented in a subclass
 }
@@ -275,6 +284,41 @@ void UcxContext::progress_io_message()
     recv_io_message();
 }
 
+ucs_status_t UcxContext::am_recv_callback(void *arg, const void *header,
+                              size_t header_length,
+                              void *data, size_t length,
+                              const ucp_am_recv_param_t *param)
+{
+    UcxContext *self = reinterpret_cast<UcxContext*>(arg);
+    void *buf        = NULL;
+    UcxCallback *cb  = NULL;
+    uint32_t conn_id = *(const_cast<uint32_t*>(reinterpret_cast<const uint32_t*>(header)));
+
+    conn_map_t::iterator iter = self->_conns.find(conn_id);
+    if (iter == self->_conns.end()) {
+        UCX_LOG << "could not find connection with id " << conn_id;
+        return UCS_OK;
+    }
+    UcxConnection *conn = iter->second;
+
+    self->dispatch_am_message(conn, header, &buf, &cb);
+
+    if (param->recv_attr & UCP_AM_RECV_ATTR_FLAG_RNDV) {
+        UCX_LOG << "AM RX CB, rndv ";
+        bool recv = conn->recv_am_data(data, buf, length, cb);
+        return recv ? UCS_INPROGRESS : UCS_OK;
+    } else  if (param->recv_attr & UCP_AM_RECV_ATTR_FLAG_SEND_REPLY) {
+        UCX_LOG << "AM RX CB, FETCH ";
+        bool sent = conn->send_am_reply(data, buf, length, cb);
+        return sent ? UCS_INPROGRESS : UCS_OK;
+    }
+
+    if (cb) {
+        (*cb)(UCS_OK);
+    }
+    return UCS_OK;
+}
+
 void UcxContext::progress_failed_connections()
 {
     while (!_failed_conns.empty()) {
@@ -376,6 +420,20 @@ void UcxContext::destroy_worker()
     ucp_worker_destroy(_worker);
 }
 
+void UcxContext::set_am_handler(uint16_t am_id, ucp_am_recv_callback_t cb,
+                    void *arg)
+{
+    ucp_am_handler_param_t param;
+
+    /* Initialize Active Message data handler */
+    param.field_mask = UCP_AM_HANDLER_PARAM_FIELD_ID |
+                       UCP_AM_HANDLER_PARAM_FIELD_CB |
+                       UCP_AM_HANDLER_PARAM_FIELD_ARG;
+    param.id         = am_id;
+    param.cb         = cb;
+    param.arg        = arg;
+    ucp_worker_set_am_recv_handler(_worker, &param);
+}
 
 #define UCX_CONN_LOG UcxLog(_log_prefix, true)
 
@@ -465,6 +523,71 @@ bool UcxConnection::send_data(const void *buffer, size_t length, uint32_t sn,
     return send_common(buffer, length, tag, callback);
 }
 
+bool UcxConnection::send_am(unsigned am_id, const void *meta,
+                            size_t meta_length, const void *buffer,
+                            size_t length, UcxCallback* callback)
+{
+    if (_ep == NULL) {
+        return false;
+    }
+
+    UCX_LOG << "AM send , len " << length << "meta len" << meta_length;
+    ucp_request_param_t param;
+    param.op_attr_mask = UCP_OP_ATTR_FIELD_CALLBACK     |
+                         UCP_OP_ATTR_FIELD_USER_DATA;
+    param.cb.send      = common_request_callback_nbx;
+    param.user_data    = this;
+
+    ucs_status_ptr_t sptr = ucp_am_send_nbx(_ep, am_id, meta, meta_length,
+                                            buffer, length, &param);
+    return process_request("ucp_am_send_nbx", sptr, callback);
+}
+
+bool UcxConnection::send_am_fetch(unsigned am_id, const void *meta, size_t meta_length,
+                                  void *buffer, size_t length,
+                                  UcxCallback* callback)
+{
+    if (_ep == NULL) {
+        return false;
+    }
+
+    UCX_LOG << "AM send fetch, len " << length << "meta len" << meta_length;
+    ucp_request_param_t param;
+    param.op_attr_mask = UCP_OP_ATTR_FIELD_CALLBACK     |
+                         UCP_OP_ATTR_FIELD_USER_DATA    |
+                         UCP_OP_ATTR_FIELD_FLAGS        |
+                         UCP_OP_ATTR_FIELD_REPLY_BUFFER |
+                         UCP_OP_ATTR_FIELD_REPLY_COUNT;
+    param.reply_buffer = buffer;
+    param.reply_count  = length;
+    param.flags        = UCP_AM_SEND_GET_REPLY;
+    param.cb.recv_am   = am_data_recv_callback;
+    param.user_data    = this;
+
+    ucs_status_ptr_t sptr = ucp_am_send_nbx(_ep, am_id, meta,
+                                            meta_length, NULL, 0ul, &param);
+    return process_request("ucp_am_send_nbx", sptr, callback);
+}
+
+bool UcxConnection::send_am_reply(void *data_desc, void *buffer, size_t length,
+                                  UcxCallback* callback)
+{
+    if (_ep == NULL) {
+        return false;
+    }
+
+    UCX_LOG << "AM send reply, len " << length;
+    ucp_request_param_t params;
+    params.op_attr_mask = UCP_OP_ATTR_FIELD_CALLBACK  |
+                          UCP_OP_ATTR_FIELD_USER_DATA |
+                          UCP_OP_ATTR_FLAG_NO_IMM_CMPL;
+    params.cb.send      = common_request_callback_nbx;
+    params.user_data    = this;
+    ucs_status_ptr_t sp = ucp_am_send_reply_nbx(_context.worker(), data_desc,
+                                                buffer, length, &params);
+    return process_request("ucp_am_send_reply_nbx", sp, callback);
+}
+
 bool UcxConnection::recv_data(void *buffer, size_t length, uint32_t sn,
                               UcxCallback* callback)
 {
@@ -479,6 +602,25 @@ bool UcxConnection::recv_data(void *buffer, size_t length, uint32_t sn,
                                                   tag, tag_mask,
                                                   data_recv_callback);
     return process_request("ucp_tag_recv_nb", ptr_status, callback);
+}
+
+bool UcxConnection::recv_am_data(void *data_desc, void *buffer, size_t length,
+                                 UcxCallback* callback)
+{
+    if (_ep == NULL) {
+        return false;
+    }
+
+    UCX_LOG << "AM recv data, len " << length;
+    ucp_request_param_t params;
+    params.op_attr_mask = UCP_OP_ATTR_FIELD_CALLBACK  |
+                          UCP_OP_ATTR_FIELD_USER_DATA |
+                          UCP_OP_ATTR_FLAG_NO_IMM_CMPL;
+    params.cb.recv_am   = am_data_recv_callback;
+    params.user_data    = this;
+    ucs_status_ptr_t sp = ucp_am_recv_data_nbx(_context.worker(), data_desc,
+                                               buffer, length, &params);
+    return process_request("ucp_am_recv_data_nbx", sp, callback);
 }
 
 void UcxConnection::cancel_all()
@@ -533,8 +675,19 @@ void UcxConnection::common_request_callback(void *request, ucs_status_t status)
     }
 }
 
+void UcxConnection::common_request_callback_nbx(void *request, ucs_status_t status, void *user_data)
+{
+    common_request_callback(request, status);
+}
+
 void UcxConnection::data_recv_callback(void *request, ucs_status_t status,
                                        ucp_tag_recv_info *info)
+{
+    common_request_callback(request, status);
+}
+
+void UcxConnection::am_data_recv_callback(void *request, ucs_status_t status,
+                                          size_t length, void *user_data)
 {
     common_request_callback(request, status);
 }

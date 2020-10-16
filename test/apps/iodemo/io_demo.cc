@@ -27,12 +27,16 @@
 typedef enum {
     IO_READ,
     IO_WRITE,
+    IO_AM_WRITE,
+    IO_AM_READ,
     IO_COMP
 } io_op_t;
 
 static const char *io_op_names[] = {
     "read",
     "write",
+    "am_write",
+    "am_read",
     "completion"
 };
 
@@ -137,6 +141,7 @@ protected:
 
     /* IO request header */
     typedef struct {
+        uint32_t    conn_id;
         io_op_t     op;
         uint32_t    sn;
         size_t      data_size;
@@ -155,13 +160,14 @@ protected:
             _pool        = pool;
             _buffer_size = buffer_size;
         }
-        
-        void init(io_op_t op, uint32_t sn, size_t data_size) {
+
+        void init(io_op_t op, uint32_t sn, size_t data_size, uint32_t r_conn_id = 0) {
             iomsg_hdr_t *hdr = reinterpret_cast<iomsg_hdr_t*>(_buffer);
             assert(sizeof(*hdr) <= _buffer_size);
             hdr->op          = op;
             hdr->sn          = sn;
             hdr->data_size   = data_size;
+            hdr->conn_id     = r_conn_id;
         }
 
         ~IoMessage() {
@@ -220,7 +226,7 @@ protected:
     bool send_io_message(UcxConnection *conn, io_op_t op,
                          uint32_t sn, size_t data_size) {
         IoMessage *m = _io_msg_pool.get();
-        m->init(op, sn, data_size);
+        m->init(op, sn, data_size, 0 /* not relevant */);
         VERBOSE_LOG << "sending IO " << io_op_names[op] << ", sn " << sn
                     << " data size " << data_size;
         return conn->send_io_message(m->buffer(), opts().iomsg_size, m);
@@ -254,12 +260,12 @@ protected:
     uint32_t get_chunk_cnt(size_t data_size) {
         return (data_size + opts().chunk_size - 1) / opts().chunk_size;
     }
-    
+
     void send_data(UcxConnection* conn, size_t data_size, uint32_t sn,
                    UcxCallback* callback = EmptyCallback::get()) {
         send_data_as_chunks(conn, data_size, sn, callback);
     }
-    
+
     void recv_data(UcxConnection* conn, size_t data_size, uint32_t sn,
                    UcxCallback* callback = EmptyCallback::get()) {
         recv_data_as_chunks(conn, data_size, sn, callback);
@@ -283,17 +289,19 @@ public:
     public:
         IoWriteResponseCallback(size_t buffer_size,
             MemoryPool<IoWriteResponseCallback>* pool) :
-            _server(NULL), _conn(NULL), _sn(0), _data_size(0), _chunk_cnt(0) {
+            _server(NULL), _conn(NULL), _sn(0), _data_size(0), _chunk_cnt(0),
+            _am(false) {
             _pool = pool;
         }
 
         void init(DemoServer *server, UcxConnection* conn, uint32_t sn,
-                  size_t data_size, uint32_t chunk_cnt = 1) {
+                  size_t data_size, uint32_t chunk_cnt = 1, bool am = false) {
              _server    = server;
              _conn      = conn;
              _sn        = sn;
              _data_size = data_size;
              _chunk_cnt = chunk_cnt;
+             _am        = am;
         }
 
         virtual void operator()(ucs_status_t status) {
@@ -301,7 +309,14 @@ public:
                 return;
             }
             if (status == UCS_OK) {
-                _server->send_io_message(_conn, IO_COMP, _sn, _data_size);
+                if (_am) {
+                    IoMessage *m = _server->_io_msg_pool.get();
+                    m->init(IO_COMP, _sn, _data_size, _conn->remote_id());
+                    _conn->send_am(AM_MSG_ID, m->buffer(),
+                                   _server->opts().iomsg_size, NULL, 0ul, m);
+                } else {
+                    _server->send_io_message(_conn, IO_COMP, _sn, _data_size);
+                }
             }
             _pool->put(this);
         }
@@ -313,6 +328,7 @@ public:
         size_t                               _data_size;
         uint32_t                             _chunk_cnt;
         MemoryPool<IoWriteResponseCallback>* _pool;
+        bool                                 _am;
     };
 
     DemoServer(const options_t& test_opts) :
@@ -386,6 +402,43 @@ public:
             LOG << "Invalid opcode: " << hdr->op;
         }
     }
+
+    virtual void dispatch_am_message(UcxConnection* conn, const void *iomsg,
+                                     void **buffer_p, UcxCallback **cb_p) {
+        const iomsg_hdr_t *hdr = reinterpret_cast<const iomsg_hdr_t*>(iomsg);
+
+        VERBOSE_LOG << "got io AM message " << io_op_names[hdr->op] << " sn "
+                    << hdr->sn << " data size " << hdr->data_size;
+
+        if (hdr->op == IO_READ) {
+            VERBOSE_LOG << "sending IO read response";
+            //IoMessage *w = _io_msg_pool.get();
+            //w->init(IO_COMP, hdr->sn, 0);
+            IoWriteResponseCallback *w = _callback_pool.get();
+            w->init(this, conn, hdr->sn, hdr->data_size,
+                    get_chunk_cnt(hdr->data_size), true);
+
+            *cb_p    = w;
+            *buffer_p = buffer();
+            next_buffer();
+        } else if (hdr->op == IO_WRITE) {
+            VERBOSE_LOG << "AM receiving IO write data";
+            assert(opts().max_data_size >= hdr->data_size);
+            assert(hdr->data_size != 0);
+
+            IoWriteResponseCallback *w = _callback_pool.get();
+            w->init(this, conn, hdr->sn, hdr->data_size,
+                    get_chunk_cnt(hdr->data_size), true);
+
+            *cb_p    = w;
+            *buffer_p = buffer();
+
+            next_buffer();
+        } else {
+            LOG << "Invalid opcode: " << hdr->op;
+        }
+    }
+
 protected:
     MemoryPool<IoWriteResponseCallback> _callback_pool;    
 };
@@ -401,7 +454,7 @@ public:
             _buffer = malloc(buffer_size);
             _pool   = pool;
         }
-        
+
         void init(long *counter, uint32_t chunk_cnt = 1) {
             _counter    = 0;
             _io_counter = counter;
@@ -468,6 +521,25 @@ public:
         return data_size;
     }
 
+    size_t do_io_am_read(UcxConnection *conn, uint32_t sn) {
+        size_t data_size = get_data_size();
+
+        IoMessage *m = _io_msg_pool.get();
+        m->init(IO_READ, sn, data_size, conn->remote_id());
+
+       // IoReadResponseCallback *r = _callback_pool.get();
+       // r->init(&_num_completed, get_chunk_cnt(data_size));
+
+        VERBOSE_LOG << "AM sending data " << buffer() << " size "
+                    << data_size << " sn " << sn;
+        conn->send_am_fetch(AM_MSG_ID, m->buffer(), opts().iomsg_size, buffer(),
+                           data_size, m);
+        next_buffer();
+        ++_num_sent;
+
+        return data_size;
+    }
+
     size_t do_io_write(UcxConnection *conn, uint32_t sn) {
         size_t data_size = get_data_size();
 
@@ -484,11 +556,40 @@ public:
         return data_size;
     }
 
+    size_t do_io_am_write(UcxConnection *conn, uint32_t sn) {
+        size_t data_size = get_data_size();
+
+        IoMessage *m = _io_msg_pool.get();
+        m->init(IO_WRITE, sn, data_size, conn->remote_id());
+
+        ++_num_sent;
+        VERBOSE_LOG << "AM sending data " << buffer() << " size "
+                    << data_size << " sn " << sn;
+        conn->send_am(AM_MSG_ID, m->buffer(), opts().iomsg_size, buffer(),
+                      data_size, m);
+        next_buffer();
+
+        return data_size;
+    }
+
     virtual void dispatch_io_message(UcxConnection* conn, const void *buffer,
                                      size_t length) {
         const iomsg_hdr_t *hdr = reinterpret_cast<const iomsg_hdr_t*>(buffer);
 
         VERBOSE_LOG << "got io message " << io_op_names[hdr->op] << " sn "
+                    << hdr->sn << " data size " << hdr->data_size
+                    << " conn " << conn;
+
+        if (hdr->op == IO_COMP) {
+            ++_num_completed;
+        }
+    }
+
+    virtual void dispatch_am_message(UcxConnection* conn, const void *iomsg,
+                                     void **buffer_p, UcxCallback **cb_p) {
+        const iomsg_hdr_t *hdr = reinterpret_cast<const iomsg_hdr_t*>(iomsg);
+
+        VERBOSE_LOG << "AM got io message " << io_op_names[hdr->op] << " sn "
                     << hdr->sn << " data size " << hdr->data_size
                     << " conn " << conn;
 
@@ -631,6 +732,12 @@ public:
                 break;
             case IO_WRITE:
                 size = do_io_write(conn[conn_num], total_iter);
+                break;
+            case IO_AM_WRITE:
+                size = do_io_am_write(conn[conn_num], total_iter);
+                break;
+            case IO_AM_READ:
+                size = do_io_am_read(conn[conn_num], total_iter);
                 break;
             default:
                 abort();
