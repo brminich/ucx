@@ -419,6 +419,10 @@ typedef enum uct_atomic_op {
                                                        channel with remote peer is broken, even if there
                                                        are no outstanding send operations */
 
+        /* Active Message alignment */
+#define UCT_IFACE_FLAG_AM_ALIGNMENT   UCS_BIT(47) /**< Interface supports setting a specific alignment
+                                                       for Active Messages on the receiver */
+
         /* Tag matching operations */
 #define UCT_IFACE_FLAG_TAG_EAGER_SHORT UCS_BIT(50) /**< Hardware tag matching short eager support */
 #define UCT_IFACE_FLAG_TAG_EAGER_BCOPY UCS_BIT(51) /**< Hardware tag matching bcopy eager support */
@@ -644,7 +648,13 @@ enum uct_iface_params_field {
     UCT_IFACE_PARAM_FIELD_ASYNC_EVENT_CB     = UCS_BIT(14),
 
     /** Enables @ref uct_iface_params_t::keepalive_interval */
-    UCT_IFACE_PARAM_FIELD_KEEPALIVE_INTERVAL = UCS_BIT(15)
+    UCT_IFACE_PARAM_FIELD_KEEPALIVE_INTERVAL = UCS_BIT(15),
+
+    /** Enables @ref uct_iface_params_t::am_alignment */
+    UCT_IFACE_PARAM_FIELD_AM_ALIGNMENT       = UCS_BIT(16),
+
+    /** Enables @ref uct_iface_params_t::am_align_offset */
+    UCT_IFACE_PARAM_FIELD_AM_ALIGN_OFFSET    = UCS_BIT(17)
 };
 
 /**
@@ -1059,6 +1069,20 @@ struct uct_iface_params {
 
     /* Time period between keepalive rounds */
     ucs_time_t                                   keepalive_interval;
+
+    /** Required alignment for Active Messages on the receiver. Note that only
+     *  data received in the UCT descriptor is guaranteed to be aligned
+     *  (i.e. @a UCT_CB_PARAM_FLAG_DESC flag is provided in the Active Message
+     *  handler callback). The provided value must be power of 2.
+     */
+    size_t                                       am_alignment;
+
+    /** Offset in the Active Message receive buffer, which should be aligned to
+     *  the @a am_alignment boundary. Note this parameter has no effect without
+     *  setting @a am_alignment parameter. The provided value must be less than
+     *  the given @a alignment value.
+     */
+    size_t                                       am_align_offset;
 };
 
 

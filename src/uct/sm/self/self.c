@@ -1,5 +1,5 @@
 /**
- * Copyright (C) Mellanox Technologies Ltd. 2001-2019.  ALL RIGHTS RESERVED.
+ * Copyright (C) Mellanox Technologies Ltd. 2001-2021.  ALL RIGHTS RESERVED.
  * See file LICENSE for terms.
  */
 
@@ -70,7 +70,8 @@ static ucs_status_t uct_self_iface_query(uct_iface_h tl_iface, uct_iface_attr_t 
                                    UCT_IFACE_FLAG_ATOMIC_CPU       |
                                    UCT_IFACE_FLAG_PENDING          |
                                    UCT_IFACE_FLAG_CB_SYNC          |
-                                   UCT_IFACE_FLAG_EP_CHECK;
+                                   UCT_IFACE_FLAG_EP_CHECK         |
+                                   UCT_IFACE_FLAG_AM_ALIGNMENT;
 
     attr->cap.atomic32.op_flags   =
     attr->cap.atomic64.op_flags   = UCS_BIT(UCT_ATOMIC_OP_ADD)     |
@@ -166,6 +167,7 @@ static UCS_CLASS_INIT_FUNC(uct_self_iface_t, uct_md_h md, uct_worker_h worker,
 {
     uct_self_iface_config_t *config = ucs_derived_of(tl_config,
                                                      uct_self_iface_config_t);
+    size_t align_offset, alignment;
     ucs_status_t status;
 
     UCT_CHECK_PARAM(params->field_mask & UCT_IFACE_PARAM_FIELD_OPEN_MODE,
@@ -190,10 +192,16 @@ static UCS_CLASS_INIT_FUNC(uct_self_iface_t, uct_md_h md, uct_worker_h worker,
     self->id          = ucs_generate_uuid((uintptr_t)self);
     self->send_size   = config->seg_size;
 
-    status = ucs_mpool_init(&self->msg_mp, 0, self->send_size, 0,
-                            UCS_SYS_CACHE_LINE_SIZE,
-                            2, /* 2 elements are enough for most of communications */
-                            UINT_MAX, &uct_self_iface_mpool_ops, "self_msg_desc");
+    status = uct_iface_param_am_alignment(params, UCS_SYS_CACHE_LINE_SIZE, 0,
+                                          &alignment, &align_offset);
+    if (status != UCS_OK) {
+        return status;
+    }
+
+    status = ucs_mpool_init(
+            &self->msg_mp, 0, self->send_size, align_offset, alignment,
+            2, /* 2 elements are enough for most of communications */
+            UINT_MAX, &uct_self_iface_mpool_ops, "self_msg_desc");
 
     if (UCS_STATUS_IS_ERR(status)) {
         return status;

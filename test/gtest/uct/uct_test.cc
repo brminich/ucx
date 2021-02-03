@@ -636,13 +636,14 @@ void uct_test::stats_restore()
     ucs_stats_init();
 }
 
-uct_test::entity* uct_test::create_entity(size_t rx_headroom,
-                                          uct_error_handler_t err_handler,
-                                          uct_tag_unexp_eager_cb_t eager_cb,
-                                          uct_tag_unexp_rndv_cb_t rndv_cb,
-                                          void *eager_arg, void *rndv_arg,
-                                          uct_async_event_cb_t async_event_cb,
-                                          void *async_event_arg) {
+uct_test::entity *
+uct_test::create_entity(size_t rx_headroom, uct_error_handler_t err_handler,
+                        uct_tag_unexp_eager_cb_t eager_cb,
+                        uct_tag_unexp_rndv_cb_t rndv_cb, void *eager_arg,
+                        void *rndv_arg, uct_async_event_cb_t async_event_cb,
+                        void *async_event_arg, size_t am_alignment,
+                        size_t am_align_offset)
+{
     uct_iface_params_t iface_params;
 
     iface_params.field_mask        = UCT_IFACE_PARAM_FIELD_RX_HEADROOM       |
@@ -673,6 +674,16 @@ uct_test::entity* uct_test::create_entity(size_t rx_headroom,
     iface_params.rndv_arg          = rndv_arg;
     iface_params.async_event_cb    = async_event_cb;
     iface_params.async_event_arg   = async_event_arg;
+
+    if (am_alignment != 0) {
+        iface_params.field_mask  |= UCT_IFACE_PARAM_FIELD_AM_ALIGNMENT;
+        iface_params.am_alignment = am_alignment;
+    }
+
+    if (am_align_offset != 0) {
+        iface_params.field_mask     |= UCT_IFACE_PARAM_FIELD_AM_ALIGN_OFFSET;
+        iface_params.am_align_offset = am_align_offset;
+    }
 
     return new entity(*GetParam(), m_iface_config, &iface_params, m_md_config);
 }

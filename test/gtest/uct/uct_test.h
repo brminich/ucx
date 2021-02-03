@@ -1,5 +1,5 @@
 /**
-* Copyright (C) Mellanox Technologies Ltd. 2001-2019.  ALL RIGHTS RESERVED.
+* Copyright (C) Mellanox Technologies Ltd. 2001-2021.  ALL RIGHTS RESERVED.
 *
 * Copyright (C) UT-Battelle, LLC. 2015. ALL RIGHTS RESERVED.
 * Copyright (C) ARM Ltd. 2017.  ALL RIGHTS RESERVED
@@ -397,14 +397,14 @@ protected:
     static void init_sockaddr_rsc(resource *rsc, struct sockaddr *listen_addr,
                                   struct sockaddr *connect_addr, size_t size,
                                   bool init_src);
-    uct_test::entity* create_entity(size_t rx_headroom,
-                                    uct_error_handler_t err_handler = NULL,
-                                    uct_tag_unexp_eager_cb_t eager_cb = NULL,
-                                    uct_tag_unexp_rndv_cb_t rndv_cb = NULL,
-                                    void *eager_arg = NULL,
-                                    void *rndv_arg = NULL,
-                                    uct_async_event_cb_t async_event_cb = NULL,
-                                    void *async_event_arg = NULL);
+    uct_test::entity *
+    create_entity(size_t rx_headroom, uct_error_handler_t err_handler = NULL,
+                  uct_tag_unexp_eager_cb_t eager_cb = NULL,
+                  uct_tag_unexp_rndv_cb_t rndv_cb = NULL,
+                  void *eager_arg = NULL, void *rndv_arg = NULL,
+                  uct_async_event_cb_t async_event_cb = NULL,
+                  void *async_event_arg = NULL, size_t am_alignment = 0ul,
+                  size_t am_align_offset = 0ul);
     uct_test::entity* create_entity(uct_iface_params_t &params);
     uct_test::entity* create_entity();
     int max_connections();
