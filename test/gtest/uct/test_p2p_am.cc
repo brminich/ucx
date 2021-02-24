@@ -756,6 +756,10 @@ public:
 
     void init()
     {
+        if (!has_ib() && !has_mm() && !has_transport("self")) {
+            UCS_TEST_SKIP_R(GetParam()->tl_name +
+                            " does not support alignment");
+        }
         // Do not call init method of uct_p2p_am_test and others to avoid
         // creating UCT instances with basic iface params
         uct_test::init();
@@ -886,15 +890,13 @@ private:
 };
 
 
-UCS_TEST_SKIP_COND_P(uct_p2p_am_alignment, invalid_align,
-                     !check_caps(UCT_IFACE_FLAG_AM_ALIGNMENT))
+UCS_TEST_P(uct_p2p_am_alignment, invalid_align)
 {
     test_invalid_alignment(0, 0, UCT_IFACE_PARAM_FIELD_AM_ALIGNMENT);
     test_invalid_alignment(3, 1, UCT_IFACE_PARAM_FIELD_AM_ALIGNMENT);
 }
 
-UCS_TEST_SKIP_COND_P(uct_p2p_am_alignment, invalid_offset,
-                     !check_caps(UCT_IFACE_FLAG_AM_ALIGNMENT))
+UCS_TEST_P(uct_p2p_am_alignment, invalid_offset)
 {
     // Align ofsset has no meaning if alignment is not requested
     test_invalid_alignment(0, 11, UCT_IFACE_PARAM_FIELD_AM_ALIGN_OFFSET);
@@ -905,43 +907,37 @@ UCS_TEST_SKIP_COND_P(uct_p2p_am_alignment, invalid_offset,
 }
 
 UCS_TEST_SKIP_COND_P(uct_p2p_am_alignment, align_short,
-                     !check_caps(UCT_IFACE_FLAG_AM_SHORT |
-                                 UCT_IFACE_FLAG_AM_ALIGNMENT))
+                     !check_caps(UCT_IFACE_FLAG_AM_SHORT))
 {
     test_align(static_cast<send_func_t>(&uct_p2p_am_test::am_short), false);
 }
 
 UCS_TEST_SKIP_COND_P(uct_p2p_am_alignment, align_short_with_offset,
-                     !check_caps(UCT_IFACE_FLAG_AM_SHORT |
-                                 UCT_IFACE_FLAG_AM_ALIGNMENT))
+                     !check_caps(UCT_IFACE_FLAG_AM_SHORT))
 {
     test_align(static_cast<send_func_t>(&uct_p2p_am_test::am_short), true);
 }
 
 UCS_TEST_SKIP_COND_P(uct_p2p_am_alignment, align_bcopy,
-                     !check_caps(UCT_IFACE_FLAG_AM_BCOPY |
-                                 UCT_IFACE_FLAG_AM_ALIGNMENT))
+                     !check_caps(UCT_IFACE_FLAG_AM_BCOPY))
 {
     test_align(static_cast<send_func_t>(&uct_p2p_am_test::am_bcopy), false);
 }
 
 UCS_TEST_SKIP_COND_P(uct_p2p_am_alignment, align_bcopy_with_offset,
-                     !check_caps(UCT_IFACE_FLAG_AM_BCOPY |
-                                 UCT_IFACE_FLAG_AM_ALIGNMENT))
+                     !check_caps(UCT_IFACE_FLAG_AM_BCOPY))
 {
     test_align(static_cast<send_func_t>(&uct_p2p_am_test::am_bcopy), true);
 }
 
 UCS_TEST_SKIP_COND_P(uct_p2p_am_alignment, align_zcopy,
-                     !check_caps(UCT_IFACE_FLAG_AM_ZCOPY |
-                                 UCT_IFACE_FLAG_AM_ALIGNMENT))
+                     !check_caps(UCT_IFACE_FLAG_AM_ZCOPY))
 {
     test_align(static_cast<send_func_t>(&uct_p2p_am_test::am_zcopy), false);
 }
 
 UCS_TEST_SKIP_COND_P(uct_p2p_am_alignment, align_zcopy_with_offset,
-                     !check_caps(UCT_IFACE_FLAG_AM_ZCOPY |
-                                 UCT_IFACE_FLAG_AM_ALIGNMENT))
+                     !check_caps(UCT_IFACE_FLAG_AM_ZCOPY))
 {
     test_align(static_cast<send_func_t>(&uct_p2p_am_test::am_zcopy), true);
 }

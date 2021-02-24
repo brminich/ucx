@@ -327,10 +327,10 @@ void uct_base_iface_query(uct_base_iface_t *iface, uct_iface_attr_t *iface_attr)
     iface_attr->dev_num_paths = 1;
 }
 
-ucs_status_t uct_iface_param_am_alignment(const uct_iface_params_t *params,
-                                          size_t def_align,
-                                          size_t def_align_offset,
-                                          size_t *align, size_t *align_offset)
+ucs_status_t
+uct_iface_param_am_alignment(const uct_iface_params_t *params, size_t def_align,
+                             size_t def_align_offset, size_t *align,
+                             size_t *align_offset, size_t elem_size)
 {
     *align        = UCT_IFACE_PARAM_VALUE(params, am_alignment, AM_ALIGNMENT,
                                           def_align);
@@ -347,6 +347,18 @@ ucs_status_t uct_iface_param_am_alignment(const uct_iface_params_t *params,
         ucs_error("invalid AM alignment %zu (offset %zu)",
                   *align, *align_offset);
         return UCS_ERR_INVALID_PARAM;
+    }
+
+
+    if (*align_offset > elem_size) {
+        ucs_assertv(def_align_offset <= elem_size,
+                    "align offset %zu, elem_size %zu", def_align_offset,
+                    elem_size);
+
+        ucs_diag("invalid AM alignment offset %zu, must be less than %zu",
+                 *align_offset, elem_size);
+
+        *align_offset = def_align_offset;
     }
 
     return UCS_OK;

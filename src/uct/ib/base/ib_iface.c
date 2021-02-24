@@ -240,7 +240,8 @@ ucs_status_t uct_ib_iface_recv_mpool_init(uct_ib_iface_t *iface,
     }
 
     status = uct_iface_param_am_alignment(params, UCS_SYS_CACHE_LINE_SIZE, 0,
-                                          &alignment, &align_offset);
+                                          &alignment, &align_offset,
+                                          iface->config.seg_size);
     if (status != UCS_OK) {
         return status;
     }

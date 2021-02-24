@@ -617,10 +617,10 @@ void uct_iface_set_async_event_params(const uct_iface_params_t *params,
 ucs_status_t uct_iface_handle_ep_err(uct_iface_h iface, uct_ep_h ep,
                                       ucs_status_t status);
 
-ucs_status_t uct_iface_param_am_alignment(const uct_iface_params_t *params,
-                                          size_t def_align,
-                                          size_t def_align_offset,
-                                          size_t *align, size_t *align_offset);
+ucs_status_t
+uct_iface_param_am_alignment(const uct_iface_params_t *params, size_t def_align,
+                             size_t def_align_offset, size_t *align,
+                             size_t *align_offset, size_t elem_size);
 
 void uct_base_iface_query(uct_base_iface_t *iface, uct_iface_attr_t *iface_attr);
 

@@ -162,8 +162,7 @@ static ucs_status_t uct_mm_iface_query(uct_iface_h tl_iface,
                                           UCT_IFACE_FLAG_PENDING             |
                                           UCT_IFACE_FLAG_CB_SYNC             |
                                           UCT_IFACE_FLAG_EP_CHECK            |
-                                          UCT_IFACE_FLAG_CONNECT_TO_IFACE    |
-                                          UCT_IFACE_FLAG_AM_ALIGNMENT;
+                                          UCT_IFACE_FLAG_CONNECT_TO_IFACE;
     iface_attr->cap.event_flags         = UCT_IFACE_FLAG_EVENT_SEND_COMP     |
                                           UCT_IFACE_FLAG_EVENT_RECV          |
                                           UCT_IFACE_FLAG_EVENT_FD;
@@ -654,7 +653,8 @@ static UCS_CLASS_INIT_FUNC(uct_mm_iface_t, uct_md_h md, uct_worker_h worker,
     }
 
     status = uct_iface_param_am_alignment(params, UCS_SYS_CACHE_LINE_SIZE, 0,
-                                          &alignment, &align_offset);
+                                          &alignment, &align_offset,
+                                          self->config.seg_size);
     if (status != UCS_OK) {
         goto err_close_signal_fd;
     }
