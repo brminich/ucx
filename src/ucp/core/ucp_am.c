@@ -164,11 +164,26 @@ static UCS_F_ALWAYS_INLINE void ucp_am_release_long_desc(ucp_recv_desc_t *desc)
 }
 
 static UCS_F_ALWAYS_INLINE int
-ucp_am_rdesc_in_progress(ucp_recv_desc_t *desc, ucs_status_t status)
+ucp_am_rdesc_in_progress(ucp_recv_desc_t *desc, ucs_status_t am_cb_status)
 {
-    return !(desc->flags & UCP_RECV_DESC_FLAG_COMPLETED) &&
-           ((desc->flags & UCP_RECV_DESC_FLAG_RECV_STARTED) ||
-            (status == UCS_INPROGRESS));
+    if (!(desc->flags & UCP_RECV_DESC_FLAG_INCOMPLETE)) {
+        /* Incomplete flag is cleared - it means ucp_am_recv_data_nbx operation
+         * was initiated and already completed. Thus, no need to save this data
+         * descriptor.
+         */
+        ucs_assert(desc->flags & UCP_RECV_DESC_FLAG_RECV_STARTED);
+        return 0;
+    } else if (am_cb_status != UCS_INPROGRESS) {
+        /* User returned UCS_OK or error (which is allowed in RNDV flow), thus,
+         * according to API, this data descriptor is not needed and
+         * ucp_am_recv_data_nbx should have not be invoked.
+         */
+        ucs_assert(!(desc->flags & UCP_RECV_DESC_FLAG_RECV_STARTED));
+        return 0;
+    }
+
+    desc->flags &= ~UCP_RECV_DESC_FLAG_INCOMPLETE;
+    return 1;
 }
 
 UCS_PROFILE_FUNC_VOID(ucp_am_data_release, (worker, data),
@@ -1126,13 +1141,13 @@ UCS_PROFILE_FUNC(ucs_status_ptr_t, ucp_am_recv_data_nbx,
 
         ucp_rndv_receive(worker, req, &rts->super, rts + 1);
     } else {
-        if (!(desc->flags & UCP_RECV_DESC_FLAG_RNDV)) {
-            status = ucp_request_recv_data_unpack(req, data_desc,
-                                                  req->recv.length, 0, 1);
-        } else {
+        if (desc->flags & UCP_RECV_DESC_FLAG_RNDV) {
             /* Nothing to receive, send ack to sender to complete its request */
             ucp_am_rndv_send_ats(worker, data_desc, UCS_OK);
             status = UCS_OK;
+        } else {
+            status = ucp_request_recv_data_unpack(req, data_desc,
+                                                  req->recv.length, 0, 1);
         }
 
         ucp_request_complete_am_recv(req, status);
@@ -1145,7 +1160,7 @@ out:
     return ret;
 
 out_completed:
-    desc->flags |= UCP_RECV_DESC_FLAG_COMPLETED;
+    desc->flags &= ~UCP_RECV_DESC_FLAG_INCOMPLETE;
     goto out;
 }
 
@@ -1214,7 +1229,8 @@ ucp_am_handler_common(ucp_worker_h worker, ucp_am_hdr_t *am_hdr, size_t hdr_size
          */
         recv_flags |= UCP_AM_RECV_ATTR_FLAG_DATA;
         desc_status = ucp_recv_desc_init(worker, data, data_length, 0, am_flags,
-                                         0, 0, -hdr_size, &desc);
+                                         0, UCP_RECV_DESC_FLAG_INCOMPLETE,
+                                         -hdr_size, &desc);
         if (ucs_unlikely(UCS_STATUS_IS_ERR(desc_status))) {
             ucs_error("worker %p could not allocate descriptor for active"
                       " message on callback : %u",
@@ -1240,13 +1256,6 @@ ucp_am_handler_common(ucp_worker_h worker, ucp_am_hdr_t *am_hdr, size_t hdr_size
     ucs_assert(!UCS_STATUS_IS_ERR(status));
 
     if (ucp_am_rdesc_in_progress(desc, status)) {
-        /* Either user wants to keep the data or receive operation is initiated
-         * with data descriptor and is not completed yet.
-         * Set initialized flag after the callback invocation to distiguish the
-         * cases when ucp_am_recv_data_nbx is called inside the callback or not.
-         */
-        desc->flags |= UCP_RECV_DESC_FLAG_INTIALIZED;
-
         return desc_status;
     } else if (!(am_flags & UCT_CB_PARAM_FLAG_DESC)) {
         ucp_recv_desc_release(desc);
@@ -1371,15 +1380,14 @@ ucp_am_handle_unfinished(ucp_worker_h worker, ucp_recv_desc_t *first_rdesc,
      */
     desc_offset                   = first_rdesc->payload_offset;
     first_rdesc                   = (ucp_recv_desc_t*)msg - 1;
-    first_rdesc->flags            = UCP_RECV_DESC_FLAG_MALLOC;
+    first_rdesc->flags            = UCP_RECV_DESC_FLAG_MALLOC |
+                                    UCP_RECV_DESC_FLAG_INCOMPLETE;
     first_rdesc->am_malloc_offset = desc_offset;
     status                        = ucp_am_invoke_cb(worker, am_id, user_hdr,
                                                      user_hdr_length, msg,
                                                      total_size, reply_ep,
                                                      recv_flags);
-    if (ucp_am_rdesc_in_progress(first_rdesc, status)) {
-        first_rdesc->flags |= UCP_RECV_DESC_FLAG_INTIALIZED;
-    } else {
+    if (!ucp_am_rdesc_in_progress(first_rdesc, status)) {
         /* user does not need to hold this data */
         ucp_am_release_long_desc(first_rdesc);
     }
@@ -1546,7 +1554,8 @@ ucs_status_t ucp_am_rndv_process_rts(void *arg, void *data, size_t length,
     }
 
     desc_status = ucp_recv_desc_init(worker, data, length, 0, tl_flags, 0,
-                                     UCP_RECV_DESC_FLAG_RNDV, 0, &desc);
+                                     UCP_RECV_DESC_FLAG_RNDV |
+                                     UCP_RECV_DESC_FLAG_INCOMPLETE, 0, &desc);
     if (ucs_unlikely(UCS_STATUS_IS_ERR(desc_status))) {
         ucs_error("worker %p could not allocate descriptor for active"
                   " message RTS on callback %u", worker, am_id);
@@ -1563,18 +1572,18 @@ ucs_status_t ucp_am_rndv_process_rts(void *arg, void *data, size_t length,
     if (ucp_am_rdesc_in_progress(desc, status)) {
         /* User either wants to save descriptor for later use or initiated
          * rendezvous receive (by ucp_am_recv_data_nbx) in the callback. */
-        ucs_assert(!UCS_STATUS_IS_ERR(status));
-
-        desc->flags |= UCP_RECV_DESC_FLAG_INTIALIZED;
-
+        ucs_assertv(!UCS_STATUS_IS_ERR(status), "%s",
+                    ucs_status_string(status));
         return desc_status;
-    } else if (desc->flags & UCP_RECV_DESC_FLAG_COMPLETED) {
+    } else if (desc->flags & UCP_RECV_DESC_FLAG_RECV_STARTED) {
         /* User initiated rendezvous receive in the callback and it is
          * already completed. No need to save the descriptor for further use
          */
-        ucs_assert(desc->flags & UCP_RECV_DESC_FLAG_RECV_STARTED);
         goto out;
     }
+
+    ucs_trace_data("worker %p, RTS is dropped, length %zu, status %s",
+                   worker, length, ucs_status_string(status));
 
     /* User does not want to receive the data, fall through to send ATS. */
 
