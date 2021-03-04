@@ -173,12 +173,12 @@ ucp_am_rdesc_in_progress(ucp_recv_desc_t *desc, ucs_status_t am_cb_status)
          */
         ucs_assert(desc->flags & UCP_RECV_DESC_FLAG_RECV_STARTED);
         return 0;
-    } else if (am_cb_status != UCS_INPROGRESS) {
-        /* User returned UCS_OK or error (which is allowed in RNDV flow), thus,
-         * according to API, this data descriptor is not needed and
-         * ucp_am_recv_data_nbx should have not be invoked.
+    } else if ((am_cb_status != UCS_INPROGRESS) &&
+               (!(desc->flags & UCP_RECV_DESC_FLAG_RECV_STARTED))) {
+        /* User returned UCS_OK or error (which is allowed in RNDV flow), and
+         * did not initiate receive operation. Thus, according to API, this data
+         * descriptor is not needed.
          */
-        ucs_assert(!(desc->flags & UCP_RECV_DESC_FLAG_RECV_STARTED));
         return 0;
     }
 
