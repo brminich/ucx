@@ -443,42 +443,53 @@ protected:
                                 UCP_AM_RECV_ATTR_FIELD_REPLY_EP);
         EXPECT_EQ(has_reply_ep, rx_param->reply_ep != NULL);
 
-        if (rx_param->recv_attr &
-            (UCP_AM_RECV_ATTR_FLAG_RNDV | UCP_AM_RECV_ATTR_FLAG_DATA)) {
-            m_rx_buf = mem_buffer::allocate(length, m_rx_memtype);
-            mem_buffer::pattern_fill(m_rx_buf, length, 0ul, m_rx_memtype);
+        if (!(rx_param->recv_attr &
+              (UCP_AM_RECV_ATTR_FLAG_RNDV | UCP_AM_RECV_ATTR_FLAG_DATA))) {
+            mem_buffer::pattern_check(data, length, SEED);
+            m_am_received = true;
+            return UCS_OK;
+        }
 
-            m_rx_dt_desc.make(m_rx_dt, m_rx_buf, length);
+        m_rx_buf = mem_buffer::allocate(length, m_rx_memtype);
+        mem_buffer::pattern_fill(m_rx_buf, length, 0ul, m_rx_memtype);
 
-            ucp_request_param_t params;
-            params.op_attr_mask = UCP_OP_ATTR_FIELD_CALLBACK |
-                                  UCP_OP_ATTR_FIELD_USER_DATA |
-                                  UCP_OP_ATTR_FIELD_DATATYPE |
-                                  UCP_OP_ATTR_FLAG_NO_IMM_CMPL;
-            params.datatype     = m_rx_dt_desc.dt();
-            params.cb.recv_am   = am_data_recv_cb;
-            params.user_data    = this;
-            ucs_status_ptr_t sp = ucp_am_recv_data_nbx(receiver().worker(),
-                                                       data, m_rx_dt_desc.buf(),
-                                                       m_rx_dt_desc.count(),
-                                                       &params);
-            EXPECT_TRUE(UCS_PTR_IS_PTR(sp)) << sp;
+        m_rx_dt_desc.make(m_rx_dt, m_rx_buf, length);
+
+        uint32_t imm_compl_flag = UCP_OP_ATTR_FLAG_NO_IMM_CMPL *
+                                  (ucs::rand() % 2);
+        size_t rx_length = SIZE_MAX;
+        ucp_request_param_t params;
+        params.op_attr_mask = UCP_OP_ATTR_FIELD_CALLBACK |
+                              UCP_OP_ATTR_FIELD_USER_DATA |
+                              UCP_OP_ATTR_FIELD_DATATYPE |
+                              UCP_OP_ATTR_FIELD_RECV_INFO |
+                              imm_compl_flag;
+        params.datatype     = m_rx_dt_desc.dt();
+        params.cb.recv_am   = am_data_recv_cb;
+        params.user_data    = this;
+        params.recv_info.length = &rx_length;
+        ucs_status_ptr_t sp = ucp_am_recv_data_nbx(receiver().worker(),
+                                                   data, m_rx_dt_desc.buf(),
+                                                   m_rx_dt_desc.count(),
+                                                   &params);
+        //ucs_warn("imm_compl %d, sp %p, rx len %zu", imm_compl_flag, sp, rx_length);
+        if (UCS_PTR_IS_PTR(sp)) {
             ucp_request_release(sp);
             status = UCS_INPROGRESS;
         } else {
-            mem_buffer::pattern_check(data, length, SEED);
-            status        = UCS_OK;
-            m_am_received = true;
+            EXPECT_EQ(NULL, sp);
+            EXPECT_EQ(rx_length, length);
+            am_recv_check_data(rx_length);
+            status = UCS_OK;
         }
 
         return status;
     }
 
-    void am_recv_check_data(size_t length, ucs_status_t status)
+    void am_recv_check_data(size_t length)
     {
         ASSERT_FALSE(m_am_received);
         m_am_received = true;
-        EXPECT_UCS_OK(status);
         mem_buffer::pattern_check(m_rx_buf, length, SEED, m_rx_memtype);
         mem_buffer::release(m_rx_buf, m_rx_memtype);
     }
@@ -522,7 +533,9 @@ protected:
     {
         test_ucp_am_nbx *self = reinterpret_cast<test_ucp_am_nbx*>(user_data);
 
-        self->am_recv_check_data(length, status);
+        EXPECT_UCS_OK(status);
+
+        self->am_recv_check_data(length);
     }
 
     static const uint16_t           TEST_AM_NBX_ID = 0;
@@ -958,7 +971,7 @@ public:
                                                                header_length,
                                                                data, length,
                                                                rx_param);
-        EXPECT_EQ(UCS_INPROGRESS, status);
+        EXPECT_FALSE(UCS_STATUS_IS_ERR(status));
 
         return UCS_INPROGRESS;
     }

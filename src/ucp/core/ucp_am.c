@@ -166,8 +166,8 @@ static UCS_F_ALWAYS_INLINE void ucp_am_release_long_desc(ucp_recv_desc_t *desc)
 static UCS_F_ALWAYS_INLINE int
 ucp_am_rdesc_in_progress(ucp_recv_desc_t *desc, ucs_status_t am_cb_status)
 {
-    if (!(desc->flags & UCP_RECV_DESC_FLAG_INCOMPLETE)) {
-        /* Incomplete flag is cleared - it means ucp_am_recv_data_nbx operation
+    if (!(desc->flags & UCP_RECV_DESC_FLAG_DONT_RELEASE)) {
+        /* Release flag is cleared - it means ucp_am_recv_data_nbx operation
          * was initiated and already completed. Thus, no need to save this data
          * descriptor.
          */
@@ -182,7 +182,11 @@ ucp_am_rdesc_in_progress(ucp_recv_desc_t *desc, ucs_status_t am_cb_status)
         return 0;
     }
 
-    desc->flags &= ~UCP_RECV_DESC_FLAG_INCOMPLETE;
+    /* Receive operation is started or user wants to keep this data. Clear
+     * UCP_RECV_DESC_FLAG_DONT_RELEASE flag, so it can be safely released later
+     * by ucp_am_data_release() or by completion of the receive operation.
+     */
+    desc->flags &= ~UCP_RECV_DESC_FLAG_DONT_RELEASE;
     return 1;
 }
 
@@ -1073,6 +1077,7 @@ UCS_PROFILE_FUNC(ucs_status_ptr_t, ucp_am_recv_data_nbx,
     ucs_memory_type_t mem_type;
     ucp_am_rndv_rts_hdr_t *rts;
     ucs_status_t status;
+    size_t recv_length;
 
     UCP_CONTEXT_CHECK_FEATURE_FLAGS(context, UCP_FEATURE_AM,
                                     return UCS_STATUS_PTR(UCS_ERR_INVALID_PARAM));
@@ -1096,72 +1101,75 @@ UCS_PROFILE_FUNC(ucs_status_ptr_t, ucp_am_recv_data_nbx,
               (desc->flags & UCP_RECV_DESC_FLAG_RNDV) ? "rndv" : "eager",
               buffer, datatype, count, ucs_memory_type_names[mem_type]);
 
-    if (!(param->op_attr_mask & UCP_OP_ATTR_FLAG_NO_IMM_CMPL)) {
-        if (!(desc->flags & UCP_RECV_DESC_FLAG_RNDV)) {
-            /* data_desc represents eager message and immediate completion is
-             * allowed - can receive in place without initializing request  */
-            status = ucp_dt_unpack_only(worker, buffer, count, datatype,
-                                        mem_type, data_desc, desc->length, 1);
-            ret    = UCS_STATUS_PTR(status);
+    if (ucs_unlikely((desc->flags & UCP_RECV_DESC_FLAG_RNDV) &&
+                     (count > 0ul))) {
+        req = ucp_request_get_param(worker, param,
+                                    {ret = UCS_STATUS_PTR(UCS_ERR_NO_MEMORY);
+                                     goto out;});
 
-            goto out_completed;
-        } else if (count == 0ul) {
-            /* Nothing to receive, send ack to sender to complete its request */
-            ucp_am_rndv_send_ats(worker, data_desc, UCS_OK);
-            ret = NULL;
+        /* Initialize receive request */
+        req->status        = UCS_OK;
+        req->recv.worker   = worker;
+        req->recv.buffer   = buffer;
+        req->flags         = UCP_REQUEST_FLAG_RECV_AM;
+        req->recv.datatype = datatype;
+        ucp_dt_recv_state_init(&req->recv.state, buffer, datatype, count);
+        req->recv.length   = ucp_dt_length(datatype, count, buffer,
+                                           &req->recv.state);
+        req->recv.mem_type = mem_type;
+        req->recv.am.desc  = desc;
+        rts                = data_desc;
 
-            goto out_completed;
-        }
-    }
+        ucp_request_set_callback_param(param, recv_am, req, recv.am);
 
-    req = ucp_request_get_param(worker, param,
-                                {ret = UCS_STATUS_PTR(UCS_ERR_NO_MEMORY);
-                                 goto out;});
-
-    /* Initialize receive request */
-    req->status        = UCS_OK;
-    req->recv.worker   = worker;
-    req->recv.buffer   = buffer;
-    req->flags         = UCP_REQUEST_FLAG_RECV_AM;
-    req->recv.datatype = datatype;
-    ucp_dt_recv_state_init(&req->recv.state, buffer, datatype, count);
-    req->recv.length   = ucp_dt_length(datatype, count, buffer,
-                                       &req->recv.state);
-    req->recv.mem_type = mem_type;
-    req->recv.am.desc  = desc;
-
-    ucp_request_set_callback_param(param, recv_am, req, recv.am);
-
-    if ((desc->flags & UCP_RECV_DESC_FLAG_RNDV) && (count > 0)) {
-        rts = data_desc;
         ucs_assert(rts->super.flags & UCP_RNDV_RTS_FLAG_AM);
         ucs_assertv(req->recv.length >= rts->super.size,
                     "rx buffer too small %zu, need %zu", req->recv.length,
                     rts->super.size);
 
         ucp_rndv_receive(worker, req, &rts->super, rts + 1);
-    } else {
-        if (desc->flags & UCP_RECV_DESC_FLAG_RNDV) {
-            /* Nothing to receive, send ack to sender to complete its request */
-            ucp_am_rndv_send_ats(worker, data_desc, UCS_OK);
-            status = UCS_OK;
-        } else {
-            status = ucp_request_recv_data_unpack(req, data_desc,
-                                                  req->recv.length, 0, 1);
-        }
-
-        ucp_request_complete_am_recv(req, status);
+        ret = req + 1;
+        goto out;
     }
 
-    ret = req + 1;
+    if (desc->flags & UCP_RECV_DESC_FLAG_RNDV) {
+        /* Nothing to receive, send ack to sender to complete its request */
+        ucp_am_rndv_send_ats(worker, data_desc, UCS_OK);
+        recv_length = 0ul;
+        status      = UCS_OK;
+    } else {
+        /* data_desc represents eager message and can be received in place
+         * without initializing request */
+        status      = ucp_dt_unpack_only(worker, buffer, count, datatype,
+                                         mem_type, data_desc, desc->length, 1);
+        recv_length = desc->length;
+    }
+
+    if (param->op_attr_mask & UCP_OP_ATTR_FLAG_NO_IMM_CMPL) {
+        req = ucp_request_get_param(worker, param,
+                                    {ret = UCS_STATUS_PTR(UCS_ERR_NO_MEMORY);
+                                     goto out;});
+        ret         = req +1;
+        req->status = status;
+        req->flags  = UCP_REQUEST_FLAG_COMPLETED;
+        ucp_request_cb_param(param, req, recv_am, recv_length);
+    } else {
+        if (param->op_attr_mask & UCP_OP_ATTR_FIELD_RECV_INFO) {
+            *param->recv_info.length = recv_length;
+        }
+        ret = UCS_STATUS_PTR(status);
+    }
+
+    /* Clear this flag, because receive operation is already completed and desc
+     * is not needed anymore. If receive operation was invoked from UCP AM
+     * callback, UCT AM handler would release this desc (by returning UCS_OK)
+     * back to UCT.
+     */
+    desc->flags &= ~UCP_RECV_DESC_FLAG_DONT_RELEASE;
 
 out:
     UCP_WORKER_THREAD_CS_EXIT_CONDITIONAL(worker);
     return ret;
-
-out_completed:
-    desc->flags &= ~UCP_RECV_DESC_FLAG_INCOMPLETE;
-    goto out;
 }
 
 static UCS_F_ALWAYS_INLINE ucs_status_t
@@ -1229,7 +1237,7 @@ ucp_am_handler_common(ucp_worker_h worker, ucp_am_hdr_t *am_hdr, size_t hdr_size
          */
         recv_flags |= UCP_AM_RECV_ATTR_FLAG_DATA;
         desc_status = ucp_recv_desc_init(worker, data, data_length, 0, am_flags,
-                                         0, UCP_RECV_DESC_FLAG_INCOMPLETE,
+                                         0, UCP_RECV_DESC_FLAG_DONT_RELEASE,
                                          -hdr_size, &desc);
         if (ucs_unlikely(UCS_STATUS_IS_ERR(desc_status))) {
             ucs_error("worker %p could not allocate descriptor for active"
@@ -1381,8 +1389,9 @@ ucp_am_handle_unfinished(ucp_worker_h worker, ucp_recv_desc_t *first_rdesc,
     desc_offset                   = first_rdesc->payload_offset;
     first_rdesc                   = (ucp_recv_desc_t*)msg - 1;
     first_rdesc->flags            = UCP_RECV_DESC_FLAG_MALLOC |
-                                    UCP_RECV_DESC_FLAG_INCOMPLETE;
+                                    UCP_RECV_DESC_FLAG_DONT_RELEASE;
     first_rdesc->am_malloc_offset = desc_offset;
+    first_rdesc->length           = total_size;
     status                        = ucp_am_invoke_cb(worker, am_id, user_hdr,
                                                      user_hdr_length, msg,
                                                      total_size, reply_ep,
@@ -1555,7 +1564,7 @@ ucs_status_t ucp_am_rndv_process_rts(void *arg, void *data, size_t length,
 
     desc_status = ucp_recv_desc_init(worker, data, length, 0, tl_flags, 0,
                                      UCP_RECV_DESC_FLAG_RNDV |
-                                     UCP_RECV_DESC_FLAG_INCOMPLETE, 0, &desc);
+                                     UCP_RECV_DESC_FLAG_DONT_RELEASE, 0, &desc);
     if (ucs_unlikely(UCS_STATUS_IS_ERR(desc_status))) {
         ucs_error("worker %p could not allocate descriptor for active"
                   " message RTS on callback %u", worker, am_id);

@@ -659,12 +659,12 @@ ucp_request_complete_am_recv(ucp_request_t *req, ucs_status_t status)
                   req->recv.length, ucs_status_string(status));
     UCS_PROFILE_REQUEST_EVENT(req, "complete_recv", status);
 
-    if (req->recv.am.desc->flags & UCP_RECV_DESC_FLAG_INCOMPLETE) {
+    if (req->recv.am.desc->flags & UCP_RECV_DESC_FLAG_DONT_RELEASE) {
         /* Descriptor is not initialized by UCT yet, therefore can not call
          * ucp_recv_desc_release() for it. Clear the flag to let UCT AM
          * callback know that this descriptor is not needed anymore.
          */
-        req->recv.am.desc->flags &= ~UCP_RECV_DESC_FLAG_INCOMPLETE;
+        req->recv.am.desc->flags &= ~UCP_RECV_DESC_FLAG_DONT_RELEASE;
     } else {
         ucp_recv_desc_release(req->recv.am.desc);
     }
