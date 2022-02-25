@@ -41,6 +41,10 @@ static ucs_config_field_t uct_cuda_copy_iface_config_table[] = {
      "Effective memory bandwidth",
      ucs_offsetof(uct_cuda_copy_iface_config_t, bandwidth), UCS_CONFIG_TYPE_BW},
 
+    {"OPS_DISABLE", "no",
+     "Disable cuda_copy operations. Memory detection remains functional.",
+     ucs_offsetof(uct_cuda_copy_iface_config_t, disable), UCS_CONFIG_TYPE_BOOL},
+
     {NULL}
 };
 
@@ -79,11 +83,14 @@ static ucs_status_t uct_cuda_copy_iface_query(uct_iface_h tl_iface,
     iface_attr->device_addr_len         = 0;
     iface_attr->ep_addr_len             = 0;
     iface_attr->cap.flags               = UCT_IFACE_FLAG_CONNECT_TO_IFACE |
-                                          UCT_IFACE_FLAG_GET_SHORT |
+                                          UCT_IFACE_FLAG_PENDING;
+
+    if (!iface->config.disable) {
+        iface_attr->cap.flags           = UCT_IFACE_FLAG_GET_SHORT |
                                           UCT_IFACE_FLAG_PUT_SHORT |
                                           UCT_IFACE_FLAG_GET_ZCOPY |
-                                          UCT_IFACE_FLAG_PUT_ZCOPY |
-                                          UCT_IFACE_FLAG_PENDING;
+                                          UCT_IFACE_FLAG_PUT_ZCOPY;
+    }
 
     iface_attr->cap.event_flags         = UCT_IFACE_FLAG_EVENT_SEND_COMP |
                                           UCT_IFACE_FLAG_EVENT_RECV      |
@@ -405,6 +412,8 @@ static UCS_CLASS_INIT_FUNC(uct_cuda_copy_iface_t, uct_md_h md, uct_worker_h work
     self->config.max_poll        = config->max_poll;
     self->config.max_cuda_events = config->max_cuda_events;
     self->config.bandwidth       = config->bandwidth;
+    self->config.disable         = config->disable;
+
 
     status = ucs_mpool_init(&self->cuda_event_desc,
                             0,
