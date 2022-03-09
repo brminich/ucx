@@ -564,6 +564,7 @@ ucs_status_t ucp_worker_mem_type_eps_create(ucp_worker_h worker)
                                               &worker->mem_type_ep[mem_type]);
         if (status != UCS_OK) {
             UCS_ASYNC_UNBLOCK(&worker->async);
+            status = UCS_OK;
             goto err_free_address_list;
         }
 

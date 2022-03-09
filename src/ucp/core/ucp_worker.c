@@ -997,9 +997,6 @@ static ucs_status_t ucp_worker_add_resource_ifaces(ucp_worker_h worker)
 
     UCS_BITMAP_CLEAR(&worker->scalable_tl_bitmap);
     UCS_BITMAP_FOR_EACH_BIT(context->tl_bitmap, tl_id) {
-        ucs_assert(ucp_worker_is_tl_p2p(worker, tl_id) ||
-                   ucp_worker_is_tl_2iface(worker, tl_id) ||
-                   ucp_worker_is_tl_2sockaddr(worker, tl_id));
         wiface = ucp_worker_iface(worker, tl_id);
         if (ucp_is_scalable_transport(context, wiface->attr.max_num_eps)) {
             UCS_BITMAP_SET(worker->scalable_tl_bitmap, tl_id);

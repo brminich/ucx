@@ -1824,6 +1824,7 @@ ucp_wireup_select_lanes(ucp_ep_h ep, unsigned ep_init_flags,
     ucp_wireup_select_context_t select_ctx;
     ucp_wireup_select_params_t select_params;
     ucs_status_t status;
+    int hide_error;
 
     UCS_BITMAP_AND_INPLACE(&scalable_tl_bitmap, tl_bitmap);
 
@@ -1841,8 +1842,12 @@ ucp_wireup_select_lanes(ucp_ep_h ep, unsigned ep_init_flags,
          * order to select best transports based on their scores only */
     }
 
+    hide_error = ucs_test_all_flags(ep_init_flags,
+                                    UCP_EP_INIT_FLAG_MEM_TYPE |
+                                    UCP_EP_INIT_FLAG_INTERNAL);
+
     ucp_wireup_select_params_init(&select_params, ep, ep_init_flags,
-                                  remote_address, tl_bitmap, 1);
+                                  remote_address, tl_bitmap, !hide_error);
     status = ucp_wireup_search_lanes(&select_params, key->err_mode,
                                      &select_ctx);
     if (status != UCS_OK) {
