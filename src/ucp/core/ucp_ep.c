@@ -2462,7 +2462,7 @@ ucs_status_t ucp_ep_config_init(ucp_worker_h worker, ucp_ep_config_t *config,
             config->tag.proto                  = &ucp_tag_offload_proto;
             config->tag.lane                   = lane;
             max_rndv_thresh                    = iface_attr->cap.tag.eager.max_zcopy;
-            max_am_rndv_thresh                 = iface_attr->cap.tag.eager.max_bcopy;
+            max_am_rndv_thresh                 = iface_attr->cap.tag.eager.max_zcopy;
             min_rndv_thresh                    = ucp_ep_tag_offload_min_rndv_thresh(config);
             min_am_rndv_thresh                 = min_rndv_thresh;
 
