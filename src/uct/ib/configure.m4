@@ -77,6 +77,13 @@ AC_ARG_WITH([dm],
 #
 AC_ARG_WITH([devx], [], [], [with_devx=check])
 
+AC_ARG_WITH([flexio],
+            [AS_HELP_STRING([--with-flexio=DIR],
+                 [Use FLEX IO SDK in DIR to build DPA support])],
+            [],
+            [with_flexio="no"])
+
+
 #
 # Check basic IB support: User wanted at least one IB transport, and we found
 # verbs header file and library.
@@ -126,12 +133,12 @@ AS_IF([test "x$with_ib" = "xyes"],
 
 AS_IF([test "x$with_ib" = "xyes"],
       [
-       save_LDFLAGS="$LDFLAGS"
-       save_CFLAGS="$CFLAGS"
-       save_CPPFLAGS="$CPPFLAGS"
-       LDFLAGS="$IBVERBS_LDFLAGS $LDFLAGS"
-       CFLAGS="$IBVERBS_CFLAGS $CFLAGS"
-       CPPFLAGS="$IBVERBS_CPPFLAGS $CPPFLAGS"
+       save_LDFLAGS="$LDFLAGS -L/opt/mellanox/flexio/lib"
+       save_CFLAGS="$CFLAGS -I/opt/mellanox/flexio/include"
+       save_CPPFLAGS="$CPPFLAGS -I/opt/mellanox/flexio/include"
+       LDFLAGS="$IBVERBS_LDFLAGS $LDFLAGS -L/opt/mellanox/flexio/lib"
+       CFLAGS="$IBVERBS_CFLAGS $CFLAGS -I/opt/mellanox/flexio/include"
+       CPPFLAGS="$IBVERBS_CPPFLAGS $CPPFLAGS -I/opt/mellanox/flexio/include"
 
        AC_CHECK_DECLS([IBV_CREATE_CQ_ATTR_IGNORE_OVERRUN],
                       [have_cq_io=yes], [], [[#include <infiniband/verbs.h>]])
@@ -289,6 +296,43 @@ AS_IF([test "x$with_ib" = "xyes"],
        CPPFLAGS="$save_CPPFLAGS"
 
        uct_modules="${uct_modules}:ib"
+
+       with_dpa_cc="${DPA_CC:-riscv64-unknown-elf-gcc}"
+
+       AS_IF([test -d "$with_flexio"],
+           [flexio_app=yes; str="with FLEX IO SDK support from $with_flexio, DPA_CC=$with_dpa_cc"],
+           [flexio_app=no; str="without FLEX IO SDK support"])
+
+       AC_MSG_NOTICE([Compiling $str])
+
+       AS_IF([test "x$flexio_app" == xyes], [
+        save_CFLAGS="$CFLAGS"
+		save_CPPFLAGS="$CPPFLAGS"
+
+		flexio_incl="-I$with_flexio -I$with_flexio/include/libflexio"
+		flexio_libs="-L$with_flexio/lib"
+
+		CFLAGS="$flexio_incl $CFLAGS"
+		CPPFLAGS="$flexio_incl $CFLAGS"
+
+		AC_CHECK_HEADER([libflexio/flexio.h], [
+			AC_SUBST(FLEXIO_LDFLAGS,  ["$flexio_libs -lflexio -lmlx5"])
+			AC_SUBST(FLEXIO_DIR,      ["$with_flexio"])
+			AC_SUBST(FLEXIO_CFLAGS,   ["$flexio_incl"])
+			AC_DEFINE([HAVE_FLEXIO], 1, [FLEX IO SDK support/DPA])
+
+			AC_CHECK_PROG([DPA_CC], [$with_dpa_cc], [$with_dpa_cc], [no])
+			AS_IF([test "x$DPA_CC" == xno], [
+				dnl todo: make it fatal error in the future
+				AC_MSG_WARN([FLEX IO SDK cross compiler is not found. DPA support will not be built])
+				])
+			],
+			[AC_MSG_WARN([FLEX IO SDK header file not found]); flexio_app=no])
+
+			CFLAGS="$save_CFLAGS"
+			CPPFLAGS="$save_CPPFLAGS"
+		],[:])
+
     ],
     [
         with_dc=no
@@ -308,6 +352,8 @@ AM_CONDITIONAL([HAVE_TL_UD],   [test "x$with_ud" != xno])
 AM_CONDITIONAL([HAVE_MLX5_DV], [test "x$with_mlx5_dv" = xyes])
 AM_CONDITIONAL([HAVE_DEVX],    [test -n "$have_devx"])
 AM_CONDITIONAL([HAVE_MLX5_HW_UD], [test "x$with_mlx5_dv" != xno -a "x$has_get_av" != xno])
+AM_CONDITIONAL([HAVE_FLEXIO], [test "x$flexio_app" != xno])
+AM_CONDITIONAL([HAVE_DPA_CC], [test "x$flexio_app" != xno -a "x$DPA_CC" != xno])
 
 uct_ib_modules=""
 m4_include([src/uct/ib/rdmacm/configure.m4])

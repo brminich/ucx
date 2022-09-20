@@ -408,6 +408,9 @@ typedef struct uct_rc_mlx5_iface_common {
                                                     const void *data, size_t length);
     } dm;
 #endif
+    struct {
+        struct flexio_process *process;
+    } dpa;
     struct mlx5dv_devx_event_channel   *event_channel;
     struct mlx5dv_devx_event_channel   *cq_event_channel;
     struct {
@@ -434,6 +437,7 @@ typedef struct uct_rc_mlx5_iface_common_config {
     unsigned                             exp_backoff;
     unsigned                             log_ack_req_freq;
     UCS_CONFIG_STRING_ARRAY_FIELD(types) srq_topo;
+    int                                  dpa_enable;
 } uct_rc_mlx5_iface_common_config_t;
 
 
