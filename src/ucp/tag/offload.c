@@ -117,6 +117,7 @@ UCS_PROFILE_FUNC_VOID(ucp_tag_offload_completed,
                                     UCP_RECV_DESC_FLAG_EAGER_SYNC |
                                     UCP_RECV_DESC_FLAG_EAGER_OFFLOAD);
     }
+ucs_info("completed and matched");
 
     if (ucs_unlikely(inline_data != NULL)) {
         status = ucp_request_recv_data_unpack(req, inline_data, length, 0, 1);
@@ -190,6 +191,7 @@ UCS_PROFILE_FUNC(ucs_status_t, ucp_tag_offload_unexp_rndv,
     size_t rkey_size;
 
     if (remote_addr) {
+ucs_info("unexp rndv");
         /* Unexpected tag offload RNDV */
         ucs_assert(hdr_length == sizeof(*rndv_hdr));
         rndv_hdr = hdr;
@@ -218,6 +220,7 @@ UCS_PROFILE_FUNC(ucs_status_t, ucp_tag_offload_unexp_rndv,
         UCP_WORKER_STAT_TAG_OFFLOAD(worker, RX_UNEXP_RNDV);
         ucp_tag_rndv_process_rts(worker, dummy_rts, dummy_rts_size, 0);
     } else {
+ucs_info("unexp hw rndv req");
         /* Unexpected tag offload rndv request. Sender buffer is either
            non-contig or it's length > rndv.max_zcopy capability of tag lane.
            Pass 0 as tl flags, because RTS needs to be stored in UCP mpool.
@@ -661,11 +664,13 @@ ucs_status_t ucp_tag_offload_start_rndv(ucp_request_t *sreq,
         if (status != UCS_OK) {
             return status;
         }
+ucs_info("start real hw rndv");
 
         /* contiguous buffer, offload can be used, but only a single lane */
         sreq->send.uct.func = ucp_tag_offload_rndv_zcopy;
     } else {
         ucp_request_send_state_reset(sreq, NULL, UCP_REQUEST_SEND_PROTO_RNDV_GET);
+ucs_info("start sw hw rndv");
 
         /* RNDV will be performed by the SW - can register with SW RNDV lanes
          * to get multirail benefits */

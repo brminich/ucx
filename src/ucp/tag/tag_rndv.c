@@ -104,8 +104,10 @@ ucp_tag_send_start_rndv(ucp_request_t *sreq, const ucp_request_param_t *param)
     ucp_send_request_id_alloc(sreq);
 
     if (ucp_ep_config_key_has_tag_lane(&ucp_ep_config(ep)->key)) {
+ucs_info("start hw rndv");
         status = ucp_tag_offload_start_rndv(sreq, param);
     } else {
+ucs_info("start sw rndv");
         ucs_assert(sreq->send.lane == ucp_ep_get_am_lane(ep));
         sreq->send.uct.func = ucp_proto_progress_tag_rndv_rts;
         status              = ucp_rndv_reg_send_buffer(sreq, param);
