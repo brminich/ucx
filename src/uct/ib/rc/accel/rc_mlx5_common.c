@@ -87,7 +87,6 @@ ucs_config_field_t uct_rc_mlx5_common_config_table[] = {
    ucs_offsetof(uct_rc_mlx5_iface_common_config_t, dpa_enable),
                 UCS_CONFIG_TYPE_BOOL},
 
-
   {NULL}
 };
 

@@ -743,11 +743,52 @@ uct_rc_mlx5_iface_subscribe_cqs(uct_rc_mlx5_iface_common_t *iface)
     return status;
 }
 
-ucs_status_t uct_rc_mlx5_dpa_process_create(uct_rc_mlx5_iface_common_t *iface)
+
+static ucs_status_t
+uct_rc_mlx5_dpa_wqs_create(uct_rc_mlx5_iface_common_t *iface)
 {
-    //struct flexio_eq_attr eq_attr        = {0};
+    uct_ib_md_t *md               = uct_ib_iface_md(&iface->super.super);
+    uct_ib_device_t *dev          = &md->dev;
+    struct flexio_eq_attr eq_attr = {0};
+    struct flexio_cq_attr cq_attr = {0};
+
+    eq_attr.log_eq_ring_depth = 5;
+    eq_attr.uar_id            = uar->uar->page_id; // Create new UAR?
+    status = flexio_eq_create(iface->dpa.process, dev->ibv_context,
+                              &eq_attr, &iface->dpa.eq);
+    if (status != FLEXIO_STATUS_SUCCESS) {
+        ucs_error("failed to create FlexIO eq, status=%d", status);
+        return UCS_ERR_IO_ERROR;
+    }
+
+    rqcq_attr.log_cq_ring_depth = 7;
+    rqcq_attr.element_type      = FLEXIO_CQ_ELEMENT_TYPE_DPA_EQ;
+    rqcq_attr.eqn               =
+    rqcq_attr.uar_id            = app_ctx.devx_uar->page_id;
+    rqcq_attr.uar_base_addr     = app_ctx.devx_uar->base_addr;
+    status = flexio_cq_create(iface->dpa.process, dev->ibv_context, &cq_attr,
+                               &iface->dpa.cq);
+    if (status != FLEXIO_STATUS_SUCCESS) {
+        ucs_error("failed to create FlexIO sq, status=%d", status);
+        return UCS_ERR_IO_ERROR;
+    }
+
+
+    /*
+    ret = flexio_window_create(iface->tm.dpa.process, md->pd,
+                               &iface->tm.dpa.tag_list_window);
+    if (ret != 0) {
+        ucs_error("failed to create tag list FlexIO window, ret=%d", ret);
+        goto err_clean_process;
+    }
+    */
+}
+
+static ucs_status_t uct_rc_mlx5_dpa_process_create(uct_rc_mlx5_iface_common_t *iface)
+{
     struct flexio_process_attr proc_attr = {0};
-    struct flexio_thread_attr thread_attr = {0}
+    //struct flexio_thread_attr thread_attr = {0}
+    struct flexio_event_handler_attr event_handler_attr = {0};
     uct_ib_md_t *md                      = uct_ib_iface_md(&iface->super.super);
     uct_ib_device_t *dev                 = &md->dev;
     void *elf_buf;
@@ -770,6 +811,18 @@ ucs_status_t uct_rc_mlx5_dpa_process_create(uct_rc_mlx5_iface_common_t *iface)
 
     ucs_print("DPA process created");
 
+    event_handler_attr.func_symbol = DPA_ENTRY_POINT;
+    status = flexio_event_handler_create(&event_handler_attr,
+                                         NULL, /* window id */
+                                         NULL, /* outbox id */,
+                                         &iface->dpa.evh);
+    if (status != FLEXIO_STATUS_SUCCESS) {
+        ucs_error("failed to create FlexIO event_handler, status=%d", status);
+        goto err_clean_elf;
+    }
+
+
+/*  Use event handler instead
     thread_attr.func_symbol = DPA_ENTRY_POINT;
     thread_attr.thread_arg = (uint64_t)ctx.dest_daddr_p;
     status = flexio_thread_create(ctx.flexio_process, &thread_attr, &ctx.thread);
@@ -778,7 +831,7 @@ ucs_status_t uct_rc_mlx5_dpa_process_create(uct_rc_mlx5_iface_common_t *iface)
     } else {
         ucs_print("DPA thread created");
     }
-
+*/
     status = flexio_process_destroy(iface->dpa.process);
     if (status != FLEXIO_STATUS_SUCCESS) {
         ucs_error("failed to create FlexIO process, status=%d", status);

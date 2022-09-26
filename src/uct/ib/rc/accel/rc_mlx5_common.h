@@ -409,7 +409,10 @@ typedef struct uct_rc_mlx5_iface_common {
     } dm;
 #endif
     struct {
-        struct flexio_process *process;
+        struct flexio_process       *process;
+        struct flexio_eq            *eq;
+        struct flexio_event_handler *evh;
+        struct flexio_window        *tag_list_window;
     } dpa;
     struct mlx5dv_devx_event_channel   *event_channel;
     struct mlx5dv_devx_event_channel   *cq_event_channel;
