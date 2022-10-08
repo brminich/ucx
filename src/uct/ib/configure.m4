@@ -321,11 +321,11 @@ AS_IF([test "x$with_ib" = "xyes"],
 			AC_SUBST(FLEXIO_CFLAGS,   ["$flexio_incl"])
 			AC_DEFINE([HAVE_FLEXIO], 1, [FLEX IO SDK support/DPA])
 
-			AC_CHECK_PROG([DPA_CC], [$with_dpa_cc], [$with_dpa_cc], [no])
-			AS_IF([test "x$DPA_CC" == xno], [
-				dnl todo: make it fatal error in the future
-				AC_MSG_WARN([FLEX IO SDK cross compiler is not found. DPA support will not be built])
-				])
+		#	AC_CHECK_PROG([DPA_CC], [$with_dpa_cc], [$with_dpa_cc], [no])
+		#	AS_IF([test "x$DPA_CC" == xno], [
+		#		dnl todo: make it fatal error in the future
+		#		AC_MSG_WARN([FLEX IO SDK cross compiler is not found. DPA support will not be built])
+		#		])
 			],
 			[AC_MSG_WARN([FLEX IO SDK header file not found]); flexio_app=no])
 

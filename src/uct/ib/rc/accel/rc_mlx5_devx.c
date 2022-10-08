@@ -397,6 +397,187 @@ err_cleanup_srq:
     return status;
 }
 
+void uct_rc_mlx5_devx_dpa_srq_destroy(uct_rc_mlx5_iface_common_t *iface)
+{
+    uct_rc_mlx5_dpa_srq_context_t *srq_ctx = iface->dpa.srq;
+    flexio_status flexio_status;
+
+    if (srq_ctx->obj != NULL) {
+        uct_ib_mlx5_devx_obj_destroy(srq_ctx->obj, "DPA_SRQ");
+    }
+    if (srq_ctx->data_daddr) {
+        flexio_status = flexio_buf_dev_free(iface->dpa.process,
+                                            srq_ctx->data_daddr)
+        if (flexio_status != FLEXIO_STATUS_SUCCESS) {
+            ucs_error("failed to free DPA SRQ data: %d", flexio_status);
+        }
+    }
+    if (srq_ctx->wq_buffer_daddr) {
+        flexio_status = flexio_buf_dev_free(iface->dpa.process,
+                                            srq_ctx->wq_buffer_daddr)
+        if (flexio_status != FLEXIO_STATUS_SUCCESS) {
+            ucs_error("failed to free DPA SRQ WQ buffer: %d", flexio_status);
+        }
+    }
+    if (srq_ctx->dbr_daddr) {
+        flexio_status = flexio_buf_dev_free(iface->dpa.process,
+                                            srq_ctx->dbr_daddr)
+        if (flexio_status != FLEXIO_STATUS_SUCCESS) {
+            ucs_error("failed to free DPA SRQ DB: %d", flexio_status);
+        }
+    }
+    if (srq_ctx->alias_dumem) {
+        if (mlx5dv_devx_obj_destroy(srq_ctx->alias_dumem->devx_obj)) {
+            ucs_error("failed to destroy DPA SRQ alias DUMEM");
+        }
+        free(srq_ctx->alias_dumem);
+    }
+
+    if (srq_ctx->data_mkey) {
+        flexio_status = flexio_device_mkey_destroy(srq_ctx->data_mkey);
+        if (flexio_status != FLEXIO_STATUS_SUCCESS) {
+            ucs_error("failed to destroy DPA SRQ DUMEM Mkey: %d",
+                      flexio_status);
+        }
+    }
+
+    ucs_free(srq_ctx);
+    iface->dpa.srq = NULL;
+}
+
+ucs_status_t uct_rc_mlx5_devx_dpa_srq_create(uct_rc_mlx5_iface_common_t *iface)
+{
+    ucs_status_t status = UCS_ERR_IO_ERROR;
+    char in[UCT_IB_MLX5DV_ST_SZ_BYTES(create_rmp_in)]   = {};
+    char out[UCT_IB_MLX5DV_ST_SZ_BYTES(create_rmp_out)] = {};
+    uct_ib_md_t *md                   = uct_ib_iface_md(&iface->super.super);
+    uct_ib_device_t *dev              = &md->dev;
+    unsigned data_buf_size            = 128; /* TMH + RVH should fit */
+    unsigned srq_wq_length            = 256;
+    struct flexio_mkey_attr mkey_attr = {0};
+    uct_rc_mlx5_dpa_srq_context_t *srq_ctx;
+    unsigned srq_wq_size, wq_type, srq_data_size;;
+    void *rmpc, *wq;
+    uint32_t dumem_id, dbr[2];
+    flexio_status flex_err;
+    uct_rc_mlx5_dpa_srq_seg_t *seg;
+    int i;
+
+
+    srq_ctx = ucs_calloc(1, sizeof(*srq_ctx));
+    if (srq_ctx == NULL) {
+        ucs_error("failed to allocate DPA SRQ context");
+        return UCS_ERR_NO_MEMORY;
+    }
+
+    srq_wq_size    = sizeof(uct_rc_mlx5_dpa_srq_seg_t) * srq_wq_length;
+    srq_data_size  = srq_wq_length * data_buf_size;
+    dev_alloc_size = srq_wq_size + srq_data_size + sizeof(dbr);
+    ucs_assertv(ucs_is_pow2(srq_wq_size), "srq_wq_size=%zu", srq_wq_size);
+    ucs_assertv(ucs_is_pow2(srq_data_size), "srq_data_size=%zu", srq_data_size);
+
+
+    flex_err = flexio_buf_dev_alloc(iface->dpa.process, dev_alloc_size,
+                                    &srq_ctx->wq_buffer_daddr);
+    if (flex_err != FLEXIO_STATUS_SUCCESS) {
+        ucs_error("failed to allocate device memory for SRQ");
+        goto err_out;
+    }
+    /* check alignments*/
+    srq_ctx->data_daddr = srq_ctx->wq_buffer_daddr + srq_wq_size;
+    srq_ctx->dbr_daddr  = srq_ctx->data_daddr + srq_data_size;
+
+    flex_err = flexio_buf_dev_memset(iface->dpa.process, 0, dev_alloc_size,
+                                     &srq_ctx->wq_buffer_daddr);
+    if (flex_err != FLEXIO_STATUS_SUCCESS) {
+        ucs_error("failed to memset SRQ data");
+        goto err_out;
+    }
+
+    mkey_attr.pd     = md->pd;
+    mkey_attr.daddr  = srq_ctx->dbr_daddr;
+    mkey_attr.len    = dev_alloc_size;
+    mkey_attr.access = IBV_ACCESS_LOCAL_WRITE;
+    flex_err = flexio_device_mkey_create(iface->dpa.process, &mkey_attr,
+                                         &srq_ctx->mkey);
+    if (flex_err) {
+        ucs_error("failed to create MKey for SRQ data");
+        goto err_out;
+    }
+    dumem_id = flexio_mkey_get_id(srq_ctx->mkey);
+
+    srq_wqes = ucs_calloc(srq_wq_length, sizeof(uct_rc_mlx5_dpa_srq_seg_t),
+                          "dpa_srq_wqes");
+    if (srq_wqes == NULL) {
+        ucs_error("failed to allocate SRQ WQEs");
+        status = UCS_ERR_NO_MEMORY;
+        goto err_out;
+    }
+
+    for (i = 0; i < srq_wq_length; i++) {
+        seg                          = srq_wqes + i;
+        seg->next_seg.next_wqe_index = i; /* not needed?, reserved for cyclic */
+        mlx5dv_set_data_seg(dseg, data_buf_size, dumem_id,
+                            srq_ctx->data_daddr + i * data_bsize);
+    }
+
+    if (flexio_host2dev_memcpy(iface->dpa.process, (uintptr_t)srq_wqes,
+                               srq_wq_size, &srq_ctx->wq_buffer_daddr)) {
+        ucs_error("failed to copy initialize SRQ WQEs");
+        goto err_out;
+    }
+
+    ucs_free(srq_wqes);
+    srq_wqes = NULL;
+
+    /* PRM */
+    UCT_IB_MLX5DV_SET(create_rmp_in, in, opcode, UCT_IB_MLX5_CMD_OP_CREATE_RMP);
+    rmpc = UCT_IB_MLX5DV_ADDR_OF(create_rmp_in, in, rmp_context);
+
+    UCT_IB_MLX5DV_SET(rmpc, rmpc, state, UCT_IB_MLX5_RMPC_STATE_RDY);
+
+    if (iface->config.srq_topo == UCT_RC_MLX5_SRQ_TOPO_CYCLIC) {
+        wq_type = UCT_IB_MLX5_SRQ_TOPO_CYCLIC;
+    } else {
+        wq_type = UCT_IB_MLX5_SRQ_TOPO_LIST;
+    }
+
+    wq = UCT_IB_MLX5DV_ADDR_OF(rmpc, rmpc, wq);
+
+    UCT_IB_MLX5DV_SET  (wq, wq, wq_type,       type);
+    UCT_IB_MLX5DV_SET  (wq, wq, log_wq_sz,     ucs_ilog2(max));
+    UCT_IB_MLX5DV_SET  (wq, wq, log_wq_stride, ucs_ilog2(stride));
+    UCT_IB_MLX5DV_SET  (wq, wq, pd,            flexio_query_pdn(md->pd));
+    UCT_IB_MLX5DV_SET  (wq, wq, dbr_umem_id,   dumem_id);
+    UCT_IB_MLX5DV_SET64(wq, wq, dbr_addr,      srq_ctx->dbr_daddr); // or offset 
+    UCT_IB_MLX5DV_SET  (wq, wq, wq_umem_id,    dumem_id);
+
+    srq_ctx->obj = uct_ib_mlx5_devx_obj_create(dev->ibv_context, in, sizeof(in),
+                                               out, sizeof(out), "RMP");
+    if (iface->rx.srq.devx.obj == NULL) {
+        status = UCS_ERR_IO_ERROR;
+        goto err_cleanup_srq;
+    }
+
+    dbr[0]   = htobe32(srq_wq_length);
+    flex_err = flexio_host2dev_memcpy(process, (uintptr_t)dbr, sizeof(dbr),
+                                      srq_context->dbr_daddr);
+    if (flex_err) {
+        flexio_err("failed to set pi on DPA SRQ");
+        goto err_out;
+    }
+
+    iface->dpa.srq = srq_ctx;
+
+    //srq_num = UCT_IB_MLX5DV_GET(create_rmp_out, out, rmpn);
+    return UCS_OK;
+
+err_out:
+    ucs_free(srq_wqes);
+    uct_rc_mlx5_devx_dpa_srq_destroy(iface);
+    return status;
+}
+
 void uct_rc_mlx5_devx_cleanup_srq(uct_ib_mlx5_md_t *md, uct_ib_mlx5_srq_t *srq)
 {
     uct_ib_mlx5_put_dbrec(srq->devx.dbrec);

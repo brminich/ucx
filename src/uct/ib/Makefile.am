@@ -79,6 +79,15 @@ endif # HAVE_MLX5_DV
 if HAVE_DEVX
 libuct_ib_la_SOURCES += \
 	rc/accel/rc_mlx5_devx.c
+
+if HAVE_FLEXIO
+noinst_HEADERS += \
+	rc/accel/rc_mlx5_dpa.h
+
+libuct_ib_la_SOURCES += \
+	rc/accel/rc_mlx5_dpa.c
+endif # HAVE_FLEXIO
+
 endif # HAVE_DEVX
 
 endif # HAVE_TL_RC

@@ -21,10 +21,13 @@
 
 #include "rc_mlx5.inl"
 
-#include <libflexio/flexio.h>
-#include <libflexio/flexio_elf.h>
+#if HAVE_FLEXIO
+#  include <libflexio/flexio.h>
+#  include <libflexio/flexio_elf.h>
+#  include <libflexio/flexio_poll.h>
+#  include "rc_mlx5_dpa.h"
+#endif
 
-#define DPA_ENTRY_POINT "ucx_dpa_thread_entry_point"
 
 
 /**
@@ -743,17 +746,27 @@ uct_rc_mlx5_iface_subscribe_cqs(uct_rc_mlx5_iface_common_t *iface)
     return status;
 }
 
-
 static ucs_status_t
 uct_rc_mlx5_dpa_wqs_create(uct_rc_mlx5_iface_common_t *iface)
 {
-    uct_ib_md_t *md               = uct_ib_iface_md(&iface->super.super);
-    uct_ib_device_t *dev          = &md->dev;
-    struct flexio_eq_attr eq_attr = {0};
-    struct flexio_cq_attr cq_attr = {0};
+    uct_ib_mlx5_md_t *md = ucs_derived_of(iface->super.super.super.md,
+                                          uct_ib_mlx5_md_t);
+    uct_ib_device_t *dev             = &md->super.dev;
+    struct flexio_eq_attr eq_attr    = {};
+    struct flexio_cq_attr rx_cq_attr = {};
+    struct flexio_cq_attr tx_cq_attr = {};
+    uct_ib_mlx5_devx_uar_t *uar;
+    flexio_status status;
+
+    uar = uct_worker_tl_data_get(iface->super.super.super.worker,
+                                 UCT_IB_MLX5_DEVX_UAR_KEY,
+                                 uct_ib_mlx5_devx_uar_t,
+                                 uct_ib_mlx5_devx_uar_cmp,
+                                 uct_ib_mlx5_devx_uar_init, md,
+                                 UCT_IB_MLX5_MMIO_MODE_DB);
 
     eq_attr.log_eq_ring_depth = 5;
-    eq_attr.uar_id            = uar->uar->page_id; // Create new UAR?
+    eq_attr.uar_id            = uar->uar->page_id; // Create new UAR
     status = flexio_eq_create(iface->dpa.process, dev->ibv_context,
                               &eq_attr, &iface->dpa.eq);
     if (status != FLEXIO_STATUS_SUCCESS) {
@@ -761,18 +774,27 @@ uct_rc_mlx5_dpa_wqs_create(uct_rc_mlx5_iface_common_t *iface)
         return UCS_ERR_IO_ERROR;
     }
 
-    rqcq_attr.log_cq_ring_depth = 7;
-    rqcq_attr.element_type      = FLEXIO_CQ_ELEMENT_TYPE_DPA_EQ;
-    rqcq_attr.eqn               =
-    rqcq_attr.uar_id            = app_ctx.devx_uar->page_id;
-    rqcq_attr.uar_base_addr     = app_ctx.devx_uar->base_addr;
-    status = flexio_cq_create(iface->dpa.process, dev->ibv_context, &cq_attr,
-                               &iface->dpa.cq);
+    rx_cq_attr.log_cq_ring_depth = 7;
+    rx_cq_attr.uar_id            = uar->uar->page_id;
+    rx_cq_attr.uar_base_addr     = uar->uar->base_addr;
+    status = flexio_cq_poll_create(iface->dpa.process, dev->ibv_context,
+                                   &rx_cq_attr, iface->dpa.eq, &iface->dpa.rx_cq);
     if (status != FLEXIO_STATUS_SUCCESS) {
-        ucs_error("failed to create FlexIO sq, status=%d", status);
+        ucs_error("failed to create DPA RX cq, status=%d", status);
         return UCS_ERR_IO_ERROR;
     }
 
+    tx_cq_attr.log_cq_ring_depth = 3; /* todo: tx cqes are not needed for rndv */
+    tx_cq_attr.element_type      = FLEXIO_CQ_ELEMENT_TYPE_NON_DPA_CQ;
+    tx_cq_attr.uar_id            = uar->uar->page_id;
+    status = flexio_cq_create(iface->dpa.process, dev->ibv_context,
+                              &tx_cq_attr, &iface->dpa.tx_cq);
+    if (status != FLEXIO_STATUS_SUCCESS) {
+        ucs_error("failed to create DPA TX cq, status=%d", status);
+        return UCS_ERR_IO_ERROR;
+    }
+
+    return UCS_OK;
 
     /*
     ret = flexio_window_create(iface->tm.dpa.process, md->pd,
@@ -895,6 +917,12 @@ UCS_CLASS_INIT_FUNC(uct_rc_mlx5_iface_common_t, uct_iface_ops_t *tl_ops,
     self->tm.cmd_wq.super.super.type = UCT_IB_MLX5_OBJ_TYPE_LAST;
     init_attr->rx_hdr_len            = UCT_RC_MLX5_MP_ENABLED(self) ?
                                        0 : sizeof(uct_rc_mlx5_hdr_t);
+
+#if HAVE_FLEXIO
+    self->dpa.enabled = mlx5_config->dpa_enabled;
+#else
+    self->dpa.enabled = 0;
+#endif
 
     UCS_CLASS_CALL_SUPER_INIT(uct_rc_iface_t, tl_ops, ops, tl_md, worker,
                               params, rc_config, init_attr);

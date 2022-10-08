@@ -13,6 +13,11 @@
 #  include <infiniband/driver.h>
 #endif
 
+#if HAVE_FLEXIO
+#  include <libflexio/flexio.h>
+#  include "rc_mlx5_dpa.h"
+#endif
+
 #include <uct/ib/mlx5/ib_mlx5_log.h>
 #include <ucs/vfs/base/vfs_cb.h>
 #include <ucs/vfs/base/vfs_obj.h>
@@ -967,6 +972,79 @@ ucs_status_t uct_rc_mlx5_ep_tag_rndv_request(uct_ep_h tl_ep, uct_tag_t tag,
 }
 #endif /* IBV_HW_TM */
 
+ucs_status_t uct_rc_mlx5_tm_qp_create(uct_rc_mlx5_iface_common_t *iface,
+                                      uct_rc_mlx5_ep_t *ep)
+{
+    uct_ib_mlx5_md_t *md       = ucs_derived_of(iface->super.super.super.md,
+                                                uct_ib_mlx5_md_t);
+    uct_ib_mlx5_qp_attr_t attr = {};
+    ucs_status_t status;
+
+#if HAVE_FLEXIO
+    struct flexio_qp_attr flexio_qp_fattr = {0};
+    flexio_status flexio_err;
+    //uct_ib_mlx5_devx_uar_t *uar;
+    struct flexio_hw_qp *hw_qp;
+    flexio_uintptr_t *hw_qp_dpa_addr;
+    uint64_t dpa_rpc_ret;
+
+    if (!iface->dpa.enabled) {
+        goto out;
+    }
+
+#if 0
+    uar = uct_worker_tl_data_get(iface->super.super.super.worker,
+                                 UCT_IB_MLX5_DEVX_UAR_KEY,
+                                 uct_ib_mlx5_devx_uar_t,
+                                 uct_ib_mlx5_devx_uar_cmp,
+                                 uct_ib_mlx5_devx_uar_init, md,
+                                 UCT_IB_MLX5_MMIO_MODE_DB);
+    flexio_qp_fattr.transport_type       = FLEXIO_QPC_ST_RC;
+    flexio_qp_fattr.log_sq_buffer_depth  = 7;
+    flexio_qp_fattr.log_data_chunk_bsize = 10;
+    flexio_qp_fattr.uar_id               = uar->uar->page_id;
+    flexio_qp_fattr.rq_cqn               = flexio_cq_get_hw_cq(iface->dpa.rx_cq)->cq_num;
+    flexio_qp_fattr.sq_cqn               = flexio_cq_get_hw_cq(iface->dpa.tx_cq)->cq_num; /* just reuse rx cq?*/
+    flexio_qp_fattr.rq_type              = FLEXIO_QP_QPC_RQ_TYPE_SRQ_RMP_XRC_SRQ_XRQ;
+    flexio_qp_fattr.pd                   = md->super.pd;
+    flexio_qp_fattr.qp_access_mask       = IBV_ACCESS_LOCAL_WRITE;
+    flexio_qp_fattr.ops_flag             = FLEXIO_QP_WR_RDMA_READ;
+#endif
+    flexio_err                           = flexio_qp_create(iface->dpa.process,
+                                                            md->super.dev.ibv_context,
+                                                            &flexio_qp_fattr,
+                                                            &ep->dpa_tm_qp);
+    if (flexio_err != FLEXIO_STATUS_SUCCESS) {
+        ucs_error("failed to create tag DPA qp: %d", flexio_err);
+        return UCS_ERR_IO_ERROR;
+    }
+
+    hw_qp      = flexio_qp_get_hw_qp(ep->dpa_tm_qp);
+    flexio_err = flexio_copy_from_host(iface->dpa.process, (uintptr_t)hw_qp,
+                                       sizeof(*hw_qp), &hw_qp_dpa_addr);
+
+    flexio_err = flexio_process_call(iface->dpa.process, UCT_MLX5_TM_QP_INIT_HANDLER,
+                                     *hw_qp_dpa_addr, 0, 0, &dpa_rpc_ret);
+    if (flexio_err != FLEXIO_STATUS_SUCCESS) {
+        ucs_error("failed to add TM qp to DPA: %d", flexio_err);
+        return UCS_ERR_IO_ERROR;
+    }
+
+    return UCS_OK;
+out:
+#endif
+    /* Send queue of this QP will be used by FW for HW RNDV. Driver requires
+     * such a QP to be initialized with zero send queue length. */
+    memset(&attr, 0, sizeof(attr));
+    uct_rc_mlx5_iface_fill_attr(iface, &attr, 0, &iface->rx.srq);
+    status = uct_rc_mlx5_iface_create_qp(iface, &ep->tm_qp, NULL, &attr);
+    if (status == UCS_OK) {
+        uct_rc_iface_add_qp(&iface->super, &ep->super, ep->tm_qp.qp_num);
+    }
+
+    return status;
+}
+
 UCS_CLASS_INIT_FUNC(uct_rc_mlx5_ep_t, const uct_ep_params_t *params)
 {
     uct_rc_mlx5_iface_common_t *iface = ucs_derived_of(params->iface,
@@ -1005,16 +1083,10 @@ UCS_CLASS_INIT_FUNC(uct_rc_mlx5_ep_t, const uct_ep_params_t *params)
     uct_rc_iface_add_qp(&iface->super, &self->super, self->tx.wq.super.qp_num);
 
     if (UCT_RC_MLX5_TM_ENABLED(iface)) {
-        /* Send queue of this QP will be used by FW for HW RNDV. Driver requires
-         * such a QP to be initialized with zero send queue length. */
-        memset(&attr, 0, sizeof(attr));
-        uct_rc_mlx5_iface_fill_attr(iface, &attr, 0, &iface->rx.srq);
-        status = uct_rc_mlx5_iface_create_qp(iface, &self->tm_qp, NULL, &attr);
+        status = uct_rc_mlx5_tm_qp_create(iface, self);
         if (status != UCS_OK) {
             goto err_unreg;
         }
-
-        uct_rc_iface_add_qp(&iface->super, &self->super, self->tm_qp.qp_num);
     }
 
     addr = (uct_rc_mlx5_iface_flush_addr_t*)UCT_EP_PARAM_VALUE(params,

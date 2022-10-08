@@ -11,6 +11,7 @@
 #include <uct/ib/rc/base/rc_iface.h>
 #include <uct/ib/rc/base/rc_ep.h>
 #include <uct/ib/mlx5/ib_mlx5.h>
+#include <libflexio/flexio.h>
 
 
 /*
@@ -252,6 +253,25 @@ typedef struct uct_rc_mlx5_iface_flush_addr {
     uint16_t                      flush_rkey_hi;
 } UCS_S_PACKED uct_rc_mlx5_iface_flush_addr_t;
 
+#if HAVE_FLEXIO
+typedef struct {
+    struct {
+        uint8_t         rsvd0[2];
+        __be16          next_wqe_index;
+        uint8_t         signature;
+        uint8_t         rsvd1[11];
+    } next_seg;
+    struct mlx5_wqe_data_seg dseg;
+} uct_rc_mlx5_dpa_srq_seg_t;
+
+typedef struct {
+     flexio_uintptr_t       dbr_daddr;
+     flexio_uintptr_t       wq_buffer_daddr;
+     flexio_uintptr_t       data_daddr;
+     struct flexio_mkey     *mkey;
+     struct mlx5dv_devx_obj *obj;
+} uct_rc_mlx5_dpa_srq_context_t;
+#endif
 
 static UCS_F_ALWAYS_INLINE int
 uct_rc_mlx5_mp_hash_equal(uct_rc_mlx5_mp_hash_key_t key1,
@@ -408,12 +428,18 @@ typedef struct uct_rc_mlx5_iface_common {
                                                     const void *data, size_t length);
     } dm;
 #endif
+#if HAVE_FLEXIO
     struct {
-        struct flexio_process       *process;
-        struct flexio_eq            *eq;
-        struct flexio_event_handler *evh;
-        struct flexio_window        *tag_list_window;
+        struct flexio_process         *process;
+        struct flexio_eq              *eq;
+        struct flexio_cq              *rx_cq;
+        struct flexio_cq              *tx_cq;
+        struct flexio_event_handler   *evh;
+        struct flexio_window          *tag_list_window;
+        uct_rc_mlx5_dpa_srq_context_t *srq;
+        int                           enabled;
     } dpa;
+#endif
     struct mlx5dv_devx_event_channel   *event_channel;
     struct mlx5dv_devx_event_channel   *cq_event_channel;
     struct {
