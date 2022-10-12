@@ -409,9 +409,11 @@ uct_rc_mlx5_iface_common_devx_connect_qp(uct_rc_mlx5_iface_common_t *iface,
     uint32_t opt_param_mask = UCT_IB_MLX5_QP_OPTPAR_RRE |
                               UCT_IB_MLX5_QP_OPTPAR_RAE |
                               UCT_IB_MLX5_QP_OPTPAR_RWE;
+    uct_ib_device_t *dev    = &md->super.dev;
     struct mlx5_wqe_av mlx5_av;
     ucs_status_t status;
     struct ibv_ah *ah;
+    unsigned max_rd_atomic;
     void *qpc;
 
     UCT_IB_MLX5DV_SET(init2rtr_qp_in, in_2rtr, opcode,
@@ -471,9 +473,14 @@ uct_rc_mlx5_iface_common_devx_connect_qp(uct_rc_mlx5_iface_common_t *iface,
         }
     }
 
+    /* Do not take max_rd_atomic from iface config, because this function
+     * creates RC QPs only, while the iface can be DC (e.g. when creating cmd QP
+     * for tag offload). And max_rd_atomic cap can be different for RC and DC.
+     */
+    max_rd_atomic = IBV_DEV_ATTR(dev, max_qp_rd_atom);
+
     UCT_IB_MLX5DV_SET(qpc, qpc, primary_address_path.vhca_port_num, ah_attr->port_num);
-    UCT_IB_MLX5DV_SET(qpc, qpc, log_rra_max,
-                      ucs_ilog2_or0(iface->super.config.max_rd_atomic));
+    UCT_IB_MLX5DV_SET(qpc, qpc, log_rra_max, ucs_ilog2_or0(max_rd_atomic));
     UCT_IB_MLX5DV_SET(qpc, qpc, atomic_mode, UCT_IB_MLX5_ATOMIC_MODE);
     UCT_IB_MLX5DV_SET(qpc, qpc, rre, true);
     UCT_IB_MLX5DV_SET(qpc, qpc, rwe, true);
@@ -497,8 +504,7 @@ uct_rc_mlx5_iface_common_devx_connect_qp(uct_rc_mlx5_iface_common_t *iface,
     UCT_IB_MLX5DV_SET(rtr2rts_qp_in, in_2rts, qpn, qp->qp_num);
 
     qpc = UCT_IB_MLX5DV_ADDR_OF(rtr2rts_qp_in, in_2rts, qpc);
-    UCT_IB_MLX5DV_SET(qpc, qpc, log_sra_max,
-                      ucs_ilog2_or0(iface->super.config.max_rd_atomic));
+    UCT_IB_MLX5DV_SET(qpc, qpc, log_sra_max, ucs_ilog2_or0(max_rd_atomic));
     UCT_IB_MLX5DV_SET(qpc, qpc, retry_count, iface->super.config.retry_cnt);
     UCT_IB_MLX5DV_SET(qpc, qpc, rnr_retry, iface->super.config.rnr_retry);
     UCT_IB_MLX5DV_SET(qpc, qpc, primary_address_path.ack_timeout,
@@ -511,6 +517,7 @@ uct_rc_mlx5_iface_common_devx_connect_qp(uct_rc_mlx5_iface_common_t *iface,
     status = uct_ib_mlx5_devx_modify_qp(qp, in_2rts, sizeof(in_2rts),
                                         out_2rts, sizeof(out_2rts));
     if (status != UCS_OK) {
+        ucs_error("this failed");
         return status;
     }
 

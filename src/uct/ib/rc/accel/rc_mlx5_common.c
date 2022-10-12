@@ -302,6 +302,7 @@ uct_rc_mlx5_devx_create_cmd_qp(uct_rc_mlx5_iface_common_t *iface)
             iface->tm.cmd_wq.super.super.qp_num, &ah_attr,
             iface->super.super.config.path_mtu, 0);
     if (status != UCS_OK) {
+        ucs_error("failed to set cmd qp");
         goto err_destroy_qp;
     }
 
