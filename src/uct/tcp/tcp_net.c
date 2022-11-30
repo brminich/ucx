@@ -28,38 +28,17 @@ typedef ssize_t (*uct_tcp_io_func_t)(int fd, void *data, size_t size, int flags)
 ucs_status_t uct_tcp_netif_caps(const char *if_name, double *latency_p,
                                 double *bandwidth_p)
 {
-    struct ethtool_cmd edata;
     uint32_t speed_mbps;
     ucs_status_t status;
     struct ifreq ifr;
     size_t ll_headers;
-    int speed_known;
     short ether_type;
     size_t mtu;
 
     memset(&ifr, 0, sizeof(ifr));
 
-    speed_known  = 0;
-    edata.cmd    = ETHTOOL_GSET;
-    ifr.ifr_data = (void*)&edata;
-    status = ucs_netif_ioctl(if_name, SIOCETHTOOL, &ifr);
-    if (status == UCS_OK) {
-#if HAVE_DECL_ETHTOOL_CMD_SPEED
-        speed_mbps = ethtool_cmd_speed(&edata);
-#else
-        speed_mbps = edata.speed;
-#endif
-#if HAVE_DECL_SPEED_UNKNOWN
-        speed_known = speed_mbps != (uint32_t)SPEED_UNKNOWN;
-#else
-        speed_known = (speed_mbps != 0) && ((uint16_t)speed_mbps != (uint16_t)-1);
-#endif
-    }
-
-    if (!speed_known) {
-        speed_mbps = 100;
-        ucs_debug("speed of %s is UNKNOWN, assuming %d Mbps", if_name, speed_mbps);
-    }
+    speed_mbps = 100;
+    ucs_debug("speed of %s is set to %d Mbps", if_name, speed_mbps);
 
     status = ucs_netif_ioctl(if_name, SIOCGIFHWADDR, &ifr);
     if (status == UCS_OK) {

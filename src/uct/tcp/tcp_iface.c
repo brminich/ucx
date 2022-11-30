@@ -48,7 +48,7 @@ static ucs_config_field_t uct_tcp_iface_config_table[] = {
    "Give higher priority to the default network interface on the host",
    ucs_offsetof(uct_tcp_iface_config_t, prefer_default), UCS_CONFIG_TYPE_BOOL},
 
-  {"PUT_ENABLE", "y",
+  {"PUT_ENABLE", "n",
    "Enable PUT Zcopy support",
    ucs_offsetof(uct_tcp_iface_config_t, put_enable), UCS_CONFIG_TYPE_BOOL},
 
