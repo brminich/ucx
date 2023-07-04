@@ -63,7 +63,7 @@
 *
  *            addr_version
  *                ^
- * proto_version  |    flags    worker_uuid     worker_name
+ * wire_version   |    flags    worker_uuid     worker_name
  *         ^      |       ^          ^               ^
  *      +------+------+---------+---------------+---------+
  *      |  4   |  4   |   8     |     64        | string  +---------+
@@ -216,7 +216,7 @@ typedef ucs_array_t(ucp_address_remote_device) ucp_address_remote_device_array_t
                                        UCP_ADDRESS_FLAG_MD_EMPTY_DEV)
 
 #define UCP_ADDRESS_HEADER_VERSION_MASK     UCS_MASK(4) /* Version - 4 bits */
-#define UCP_ADDRESS_HEADER_FLAGS_SHIFT_V1   4
+#define UCP_ADDRESS_HEADER_SHIFT            4
 
 #define UCP_ADDRESS_DEFAULT_WORKER_UUID     0
 #define UCP_ADDRESS_DEFAULT_CLIENT_ID       0
@@ -1057,30 +1057,54 @@ static void ucp_address_pack_header_flags(uint8_t *address_header,
                                           uint8_t flags)
 {
     if (addr_version == UCP_OBJECT_VERSION_V1) {
-        *address_header |= (flags << UCP_ADDRESS_HEADER_FLAGS_SHIFT_V1);
+        *address_header |= (flags << UCP_ADDRESS_HEADER_SHIFT);
     } else {
         address_header += 1;
         *address_header = flags;
     }
 }
 
+static void *ucp_address_pack_header(uint8_t *ptr,
+                                     ucp_object_version_t addr_version)
+{
+    uint8_t *addr_header = ptr;
+
+    *addr_header = addr_version;
+
+    if (addr_version == UCP_OBJECT_VERSION_V1) {
+        return UCS_PTR_TYPE_OFFSET(ptr, uint8_t);
+    }
+
+    UCS_STATIC_ASSERT(UCP_RELEASE_CURRENT < UCS_BIT(4));
+
+    *addr_header |= (UCP_RELEASE_CURRENT << UCP_ADDRESS_HEADER_SHIFT);
+
+    return UCS_PTR_TYPE_OFFSET(ptr, uint16_t);
+}
+
 static void *ucp_address_unpack_header(const void *ptr,
                                        ucp_object_version_t *addr_version,
-                                       uint8_t *addr_flags)
+                                       uint8_t *addr_flags,
+                                       unsigned *wire_version)
 {
     const uint8_t *addr_header = ptr;
 
     *addr_version = *addr_header & UCP_ADDRESS_HEADER_VERSION_MASK;
 
     if (*addr_version == UCP_OBJECT_VERSION_V1) {
-        *addr_flags = *addr_header >> UCP_ADDRESS_HEADER_FLAGS_SHIFT_V1;
+        /* Address version v2 is used starting from v1.16 only, if we receive
+         * address v1, we assume that it is some older release.
+         */
+        *addr_flags   = *addr_header >> UCP_ADDRESS_HEADER_SHIFT;
+        *wire_version = UCP_RELEASE_LEGACY;
         return UCS_PTR_TYPE_OFFSET(ptr, uint8_t);
     }
 
     ucs_assertv_always(*addr_version == UCP_OBJECT_VERSION_V2,
                        "addr version %u", *addr_version);
 
-    *addr_flags = *(addr_header + 1);
+    *addr_flags   = *(addr_header + 1);
+    *wire_version = *addr_header >> UCP_ADDRESS_HEADER_SHIFT;
 
     return UCS_PTR_TYPE_OFFSET(ptr, uint16_t);
 }
@@ -1089,9 +1113,11 @@ uint64_t ucp_address_get_uuid(const void *address)
 {
     uint64_t *uuid;
     ucp_object_version_t address_version;
+    unsigned wire_version;
     uint8_t flags;
 
-    uuid = ucp_address_unpack_header(address, &address_version, &flags);
+    uuid = ucp_address_unpack_header(address, &address_version, &flags,
+                                     &wire_version);
 
     return (flags & UCP_ADDRESS_HEADER_FLAG_WORKER_UUID) ?
            *uuid : UCP_ADDRESS_DEFAULT_WORKER_UUID;
@@ -1101,9 +1127,11 @@ uint64_t ucp_address_get_client_id(const void *address)
 {
     const void *offset;
     ucp_object_version_t address_version;
+    unsigned wire_version;
     uint8_t flags;
 
-    offset = ucp_address_unpack_header(address, &address_version, &flags);
+    offset = ucp_address_unpack_header(address, &address_version, &flags,
+                                       &wire_version);
     if (!(flags & UCP_ADDRESS_HEADER_FLAG_CLIENT_ID)) {
         return UCP_ADDRESS_DEFAULT_CLIENT_ID;
     }
@@ -1119,8 +1147,10 @@ uint8_t ucp_address_is_am_only(const void *address)
 {
     uint8_t addr_flags;
     ucp_object_version_t addr_version;
+    unsigned wire_version;
 
-    ucp_address_unpack_header(address, &addr_version, &addr_flags);
+    ucp_address_unpack_header(address, &addr_version, &addr_flags,
+                              &wire_version);
     return addr_flags & UCP_ADDRESS_HEADER_FLAG_AM_ONLY;
 }
 
@@ -1158,10 +1188,7 @@ ucp_address_do_pack(ucp_worker_h worker, ucp_ep_h ep, void *buffer, size_t size,
     addr_index        = 0;
     addr_flags        = 0;
     address_header_p  = ptr;
-    *address_header_p = addr_version;
-    ptr               = (addr_version == UCP_OBJECT_VERSION_V1) ?
-                        UCS_PTR_TYPE_OFFSET(ptr, uint8_t) :
-                        UCS_PTR_TYPE_OFFSET(ptr, uint16_t);
+    ptr               = ucp_address_pack_header(address_header_p, addr_version);
 
     if (pack_flags & UCP_ADDRESS_PACK_FLAG_AM_ONLY) {
         addr_flags |= UCP_ADDRESS_HEADER_FLAG_AM_ONLY;
@@ -1569,7 +1596,8 @@ ucs_status_t ucp_address_unpack(ucp_worker_t *worker, const void *buffer,
     unpacked_address->address_count = 0;
     unpacked_address->address_list  = NULL;
 
-    ptr = ucp_address_unpack_header(buffer, &addr_version, &addr_flags);
+    ptr = ucp_address_unpack_header(buffer, &addr_version, &addr_flags,
+                                    &unpacked_address->wire_version);
 
     ucp_address_trace(unpack_flags, "unpack address version %u flags 0x%x",
                       addr_version, addr_flags);

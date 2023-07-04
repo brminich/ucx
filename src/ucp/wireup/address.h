@@ -17,6 +17,16 @@
 #define UCP_ADDRESS_IFACE_SEG_SIZE_FACTOR 64
 
 
+/* UCX release version, packed to the worker address and is used to maintain
+ * wire compatibility.
+ */
+enum {
+    UCP_RELEASE_LEGACY,
+    UCP_RELEASE_1_16,
+    UCP_RELEASE_CURRENT = UCP_RELEASE_1_16
+};
+
+
 /* Which iface flags would be packed in the address */
 enum {
     UCP_ADDRESS_IFACE_FLAGS =
@@ -163,6 +173,7 @@ struct ucp_unpacked_address {
     char                        name[UCP_WORKER_ADDRESS_NAME_MAX];
     unsigned                    address_count;  /* Length of address list */
     ucp_address_entry_t         *address_list;  /* Pointer to address list */
+    unsigned                    wire_version;
 };
 
 
