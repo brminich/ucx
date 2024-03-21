@@ -176,3 +176,26 @@ void ucp_tag_frag_list_process_queue(ucp_tag_match_t *tm, ucp_request_t *req,
     /* request not completed, put it on the hash */
     ucp_tag_frag_hash_init_exp(matchq, req);
 }
+
+void ucp_tag_unexp_recv_str(ucp_tag_match_t *tm, ucs_string_buffer_t *strb)
+{
+    ucp_rndv_rts_hdr_t *rts;
+    ucp_recv_desc_t *rdesc;
+
+    ucs_list_for_each(rdesc, &tm->unexpected.all, tag_list[UCP_RDESC_ALL_LIST]) {
+        if (rdesc->flags & UCP_RECV_DESC_FLAG_RNDV) {
+            rts = (ucp_rndv_rts_hdr_t*)(rdesc + 1);
+            ucs_string_buffer_appendf(strb,
+                "RTS:[size %zu address %p, tag 0x%lx epid 0x%lx reqid 0x%lx, "
+                "ops_sn %u rndv_ops_sn %u use_count %u], ",
+                rts->size, (void*)rts->address, ucp_rdesc_get_tag(rdesc),
+                rts->sreq.ep_id, rts->sreq.req_id,
+                rts->ops_sn, rts->rndv_ops_sn, rts->use_count);
+        } else {
+            ucs_string_buffer_appendf(strb, "["UCP_RECV_DESC_RED_FMT" tag %"PRIx64" len %u], ",
+                                      UCP_RECV_DESC_ARG_RED(rdesc),
+                                      ucp_rdesc_get_tag(rdesc), rdesc->length);
+        }
+    }
+}
+

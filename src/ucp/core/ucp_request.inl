@@ -41,6 +41,9 @@ UCS_PTR_MAP_IMPL(request, 0);
 #define UCP_RECV_DESC_FMT \
     "rdesc %p %c%c%c%c%c%c len %u+%u"
 
+#define UCP_RECV_DESC_RED_FMT \
+    "%c%c%c%c%c%c"
+
 #define UCP_RECV_DESC_ARG(_rdesc) \
     (_rdesc), \
     (((_rdesc)->flags & UCP_RECV_DESC_FLAG_UCT_DESC)      ? 't' : '-'), \
@@ -51,6 +54,14 @@ UCS_PTR_MAP_IMPL(request, 0);
     (((_rdesc)->flags & UCP_RECV_DESC_FLAG_RNDV)          ? 'r' : '-'), \
     (_rdesc)->payload_offset, \
     ((_rdesc)->length - (_rdesc)->payload_offset)
+
+#define UCP_RECV_DESC_ARG_RED(_rdesc) \
+    (((_rdesc)->flags & UCP_RECV_DESC_FLAG_UCT_DESC)      ? 't' : '-'), \
+    (((_rdesc)->flags & UCP_RECV_DESC_FLAG_EAGER)         ? 'e' : '-'), \
+    (((_rdesc)->flags & UCP_RECV_DESC_FLAG_EAGER_ONLY)    ? 'o' : '-'), \
+    (((_rdesc)->flags & UCP_RECV_DESC_FLAG_EAGER_SYNC)    ? 's' : '-'), \
+    (((_rdesc)->flags & UCP_RECV_DESC_FLAG_EAGER_OFFLOAD) ? 'f' : '-'), \
+    (((_rdesc)->flags & UCP_RECV_DESC_FLAG_RNDV)          ? 'r' : '-')
 
 
 /* defined as a macro to print the call site */

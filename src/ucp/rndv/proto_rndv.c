@@ -9,7 +9,7 @@
 #endif
 
 #include "proto_rndv.inl"
-
+#include <ucp/tag/tag_rndv.h>
 #include <ucp/proto/proto_init.h>
 #include <ucp/proto/proto_debug.h>
 #include <ucp/proto/proto_common.inl>
@@ -755,6 +755,7 @@ void ucp_proto_rndv_receive_start(ucp_worker_h worker, ucp_request_t *recv_req,
                                   const void *rkey_buffer, size_t rkey_length)
 {
     UCS_STRING_BUFFER_ONSTACK(strb, 256);
+    UCS_STRING_BUFFER_ONSTACK(strb_unexp, 1024);
     ucp_operation_id_t op_id;
     ucs_status_t status;
     ucp_request_t *req;
@@ -798,12 +799,15 @@ void ucp_proto_rndv_receive_start(ucp_worker_h worker, ucp_request_t *recv_req,
         ucp_datatype_iter_init_null(&req->send.state.dt_iter,
                                     recv_req->recv.dt_iter.length, &sg_count);
         ucs_string_buffer_appendf(&strb,
-                "RX trunc: RTS [size %zu address %p, epid 0x%lx reqid 0x%lx, "
+                "RX trunc: RTS [size %zu address %p, tag 0x%lx epid 0x%lx reqid 0x%lx, "
                 "ops_sn %u rndv_ops_sn %u use_count %u], ",
-                rts->size, (void*)rts->address, rts->sreq.ep_id, rts->sreq.req_id,
+                rts->size, (void*)rts->address, ucp_tag_hdr_from_rts(rts)->tag,
+                rts->sreq.ep_id, rts->sreq.req_id,
                 rts->ops_sn, rts->rndv_ops_sn, rts->use_count);
         ucp_request_state_str(&recv_req->state_init, "init", &strb);
         ucs_error("%s",  ucs_string_buffer_cstr(&strb));
+        ucp_tag_unexp_recv_str(&worker->tm, &strb_unexp);
+        ucs_error("UNEXP: %s",  ucs_string_buffer_cstr(&strb_unexp));
 
     }
 
