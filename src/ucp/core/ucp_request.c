@@ -278,6 +278,7 @@ ucp_worker_request_init_proxy(ucs_mpool_t *mp, void *obj, void *chunk)
     ucp_request_t *req    = obj;
 
     ucp_request_id_reset(req);
+    ucp_request_reset(req);
 
     if (context->config.request.init != NULL) {
         context->config.request.init(req + 1);

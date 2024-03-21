@@ -289,6 +289,8 @@ UCS_PROFILE_FUNC(ucs_status_ptr_t, ucp_tag_send_nbx,
         goto out;
     });
 
+    req->send.ops_sn = ep->ext->ops_count++;
+
     if (worker->context->config.ext.proto_enable) {
         req->send.msg_proto.tag = tag;
 

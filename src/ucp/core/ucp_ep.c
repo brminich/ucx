@@ -226,6 +226,8 @@ static ucp_ep_h ucp_ep_allocate(ucp_worker_h worker, const char *peer_name)
 #endif
     ep->ext->peer_mem                     = NULL;
     ep->ext->uct_eps                      = NULL;
+    ep->ext->ops_count                    = 0;
+    ep->ext->rndv_ops_count               = 0;
 
     UCS_STATIC_ASSERT(sizeof(ep->ext->ep_match) >=
                       sizeof(ep->ext->flush_state));

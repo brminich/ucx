@@ -147,6 +147,10 @@ UCS_PROFILE_FUNC(ucs_status_t, ucp_tag_rndv_rts_progress, (self),
                             ucp_tag_rndv_proto_rts_pack, req, max_rts_size,
                             NULL, 0);
     if (status == UCS_OK) {
+        ucp_request_init_state(&req->send.state_pack, NULL, 0,
+                               &req->send.state.dt_iter,  req->use_count);
+        req->send.rts_in_progress = 1;
+        req->send.rndv_ops_sn     = req->send.ep->ext->rndv_ops_count++;
         UCP_EP_STAT_TAG_OP(req->send.ep, RNDV);
     }
 

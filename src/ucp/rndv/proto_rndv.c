@@ -754,6 +754,7 @@ void ucp_proto_rndv_receive_start(ucp_worker_h worker, ucp_request_t *recv_req,
                                   const ucp_rndv_rts_hdr_t *rts,
                                   const void *rkey_buffer, size_t rkey_length)
 {
+    UCS_STRING_BUFFER_ONSTACK(strb, 256);
     ucp_operation_id_t op_id;
     ucs_status_t status;
     ucp_request_t *req;
@@ -776,6 +777,7 @@ void ucp_proto_rndv_receive_start(ucp_worker_h worker, ucp_request_t *recv_req,
     req->send.rndv.remote_req_id  = rts->sreq.req_id;
     req->send.rndv.remote_address = rts->address;
     req->send.rndv.offset         = 0;
+    req->status                   = UCS_OK;
     ucp_request_set_super(req, recv_req);
 
     if (ucs_likely(rts->size <= recv_req->recv.dt_iter.length)) {
@@ -789,9 +791,20 @@ void ucp_proto_rndv_receive_start(ucp_worker_h worker, ucp_request_t *recv_req,
         rkey_length      = 0; /* Override rkey length to disable data fetch */
         op_id            = UCP_OP_ID_RNDV_RECV_DROP;
         recv_req->status = UCS_ERR_MESSAGE_TRUNCATED;
+        req->status      = UCS_ERR_MESSAGE_TRUNCATED;
+        req->rts_size    = rts->size;
+        req->send.rts_use_count = rts->use_count;
         ucp_datatype_iter_cleanup(&recv_req->recv.dt_iter, 1, UCP_DT_MASK_ALL);
-        ucp_datatype_iter_init_null(&req->send.state.dt_iter, rts->size,
-                                    &sg_count);
+        ucp_datatype_iter_init_null(&req->send.state.dt_iter,
+                                    recv_req->recv.dt_iter.length, &sg_count);
+        ucs_string_buffer_appendf(&strb,
+                "RX trunc: RTS [size %zu address %p, epid 0x%lx reqid 0x%lx, "
+                "ops_sn %u rndv_ops_sn %u use_count %u], ",
+                rts->size, (void*)rts->address, rts->sreq.ep_id, rts->sreq.req_id,
+                rts->ops_sn, rts->rndv_ops_sn, rts->use_count);
+        ucp_request_state_str(&recv_req->state_init, "init", &strb);
+        ucs_error("%s",  ucs_string_buffer_cstr(&strb));
+
     }
 
     status = ucp_proto_rndv_send_reply(worker, req, op_id,
@@ -875,6 +888,8 @@ ucp_proto_rndv_handle_rtr(void *arg, void *data, size_t length, unsigned flags)
         ucp_tag_offload_cancel_rndv(req);
         ucs_assert(!ucp_ep_use_indirect_id(req->send.ep));
     }
+
+    req->send.rts_in_progress = 0;
 
     /* RTR covers the whole send request - use the send request directly */
     ucs_assert(req->flags & UCP_REQUEST_FLAG_PROTO_INITIALIZED);

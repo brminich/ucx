@@ -298,6 +298,10 @@ ucp_proto_request_send_op(ucp_ep_h ep, ucp_proto_select_t *proto_select,
         return UCS_STATUS_PTR(status);
     }
 
+    ucp_request_init_state(&req->state_init, (void*)buffer, contig_length,
+                           &req->send.state.dt_iter, req->use_count);
+
+
     ucp_proto_select_param_init(&sel_param, op_id, param->op_attr_mask,
                                 op_flags, req->send.state.dt_iter.dt_class,
                                 &req->send.state.dt_iter.mem_info, sg_count);

@@ -35,6 +35,9 @@ typedef struct {
     size_t            size;
     /* RNDV proto opcode */
     uint8_t           opcode;
+    uint32_t          use_count;
+    uint32_t          ops_sn;
+    uint32_t          rndv_ops_sn;
     /*
      * 1. Packed rkeys follow
      * 2. AM only: User header follows, if am->header_length is not 0
@@ -71,6 +74,8 @@ typedef struct {
 
     /* Size of the acknowledged data */
     size_t          size;
+    size_t          rts_size;
+    uint32_t        use_count;
 } UCS_S_PACKED ucp_rndv_ack_hdr_t;
 
 

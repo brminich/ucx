@@ -72,6 +72,7 @@ ucp_proto_rndv_ats_handler(void *arg, void *data, size_t length, unsigned flags)
     ucs_status_t status           = rephdr->status;
     const ucp_rndv_ack_hdr_t *ats;
     ucp_request_t *req;
+    UCS_STRING_BUFFER_ONSTACK(strb, 256);
 
     UCP_SEND_REQUEST_GET_BY_ID(&req, worker, rephdr->req_id, 0, return UCS_OK,
                                "ATS %p", rephdr);
@@ -80,9 +81,22 @@ ucp_proto_rndv_ats_handler(void *arg, void *data, size_t length, unsigned flags)
         ucp_tag_offload_cancel_rndv(req);
     }
 
+    req->send.rts_in_progress = 0;
+
     if (length >= sizeof(*ats)) {
         /* ATS message carries a size field */
         ats = ucs_derived_of(rephdr, ucp_rndv_ack_hdr_t);
+        if (ats->super.status == UCS_ERR_MESSAGE_TRUNCATED) {
+            ucs_string_buffer_appendf(&strb,
+             "RX trunc: ATS [size %zu rts_size %zu rts_use_count %u], "
+             "req: [op_sn %u, rndv_op_sn %u use_count %u], ",
+             ats->size, ats->rts_size, ats->use_count, req->send.ops_sn,
+             req->send.rndv_ops_sn, req->use_count);
+            ucp_request_state_str(&req->state_init, "init", &strb);
+            ucp_request_state_str(&req->send.state_pack, "pack", &strb);
+            ucs_error("%s", ucs_string_buffer_cstr(&strb));
+        }
+
         if (!ucp_proto_common_frag_complete(req, ats->size, "rndv_ats")) {
             return UCS_OK; /* Not completed */
         }
@@ -105,6 +119,9 @@ static UCS_F_ALWAYS_INLINE size_t ucp_proto_rndv_rts_pack(
     rts->sreq.req_id = ucp_send_request_get_id(req);
     rts->sreq.ep_id  = ucp_send_request_get_ep_remote_id(req);
     rts->size        = req->send.state.dt_iter.length;
+    rts->use_count   = req->use_count;
+    rts->ops_sn      = req->send.ops_sn;
+    rts->rndv_ops_sn = req->send.rndv_ops_sn;
     rpriv            = req->send.proto_config->priv;
 
     if ((rts->size == 0) ||
@@ -133,8 +150,10 @@ static size_t UCS_F_ALWAYS_INLINE ucp_proto_rndv_pack_ack(ucp_request_t *req,
     }
 
     ack_hdr->super.req_id = req->send.rndv.remote_req_id;
-    ack_hdr->super.status = UCS_OK;
+    ack_hdr->super.status = req->status;
     ack_hdr->size         = ack_size;
+    ack_hdr->rts_size     = req->rts_size;
+    ack_hdr->use_count    = req->send.rts_use_count;
     return sizeof(*ack_hdr);
 }
 

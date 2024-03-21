@@ -135,6 +135,11 @@ static UCS_F_ALWAYS_INLINE ucs_status_ptr_t ucp_tag_recv_common(
         goto err;
     }
 
+    ucp_request_init_state(&req->state_init, buffer,
+                           (param->op_attr_mask & UCP_OP_ATTR_FIELD_DATATYPE) ?
+                           ucp_contig_dt_length(param->datatype, count) : count,
+                           &req->recv.dt_iter, req->use_count);
+
     if (req->recv.dt_iter.dt_class != UCP_DATATYPE_CONTIG) {
         req->flags         |= UCP_REQUEST_FLAG_BLOCK_OFFLOAD;
     }

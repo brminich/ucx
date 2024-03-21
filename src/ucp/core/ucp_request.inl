@@ -115,7 +115,9 @@ UCS_PTR_MAP_IMPL(request, 0);
         } else { \
             __req = ((ucp_request_t*)(_param)->request) - 1; \
             ucp_request_id_reset(__req); \
+            ucp_request_reset(__req); \
         } \
+        __req->use_count++; \
         __req; \
     })
 
@@ -222,12 +224,24 @@ static UCS_F_ALWAYS_INLINE void ucp_request_id_reset(ucp_request_t *req)
     req->id = UCS_PTR_MAP_KEY_INVALID;
 }
 
+static UCS_F_ALWAYS_INLINE void ucp_request_reset(ucp_request_t *req)
+{
+    req->use_count        = 0;
+    req->send.ops_sn      = 0;
+    req->send.rndv_ops_sn = 0;
+    req->send.rts_use_count = 0;
+    req->rts_size         = 0;
+    memset(&req->state_init, 0, sizeof(req->state_init));
+    memset(&req->send.state_pack, 0, sizeof(req->send.state_pack));
+}
+
 static UCS_F_ALWAYS_INLINE void
 ucp_request_reset_internal(ucp_request_t *req, ucp_worker_h worker)
 {
     VALGRIND_MAKE_MEM_DEFINED(&req->id, sizeof(req->id));
     VALGRIND_MAKE_MEM_DEFINED(req + 1, worker->context->config.request.size);
     ucp_request_id_check(req, ==, UCS_PTR_MAP_KEY_INVALID);
+    ucp_request_reset(req);
 }
 
 static UCS_F_ALWAYS_INLINE void
@@ -279,6 +293,7 @@ ucp_request_mem_alloc(const char *name)
 
     ucs_trace_req("allocated request %p (%s)", req, name);
     ucp_request_id_reset(req);
+    ucp_request_reset(req);
     UCS_PROFILE_REQUEST_NEW(req, "ucp_request", 0);
 
     return req;
@@ -995,6 +1010,30 @@ ucp_request_complete_and_dereg_send(ucp_request_t *sreq, ucs_status_t status)
     ucp_request_complete_send(sreq, status);
 }
 
+static UCS_F_ALWAYS_INLINE void
+ucp_request_init_state(ucp_request_state_t *req_state, void *buffer,
+                       size_t length, ucp_datatype_iter_t *dt_state,
+                       uint32_t use_count)
+{
+    req_state->buffer    = buffer;
+    req_state->length    = length;
+    req_state->dt_state  = *dt_state;
+    req_state->use_count = use_count;
+}
+
+static UCS_F_ALWAYS_INLINE void
+ucp_request_state_str(ucp_request_state_t *req_state, char *name,
+                      ucs_string_buffer_t *strb)
+{
+    ucs_string_buffer_appendf(strb, "%s: [addr %p, len %zu, ", name,
+                              req_state->dt_state.type.contig.buffer,
+                              req_state->dt_state.length);
+    if (req_state->buffer != NULL) {
+        ucs_string_buffer_appendf(strb, " buff %p, len %zu, ",
+                                  req_state->buffer, req_state->length);
+    }
+    ucs_string_buffer_appendf(strb, "use_count %u] ", req_state->use_count);
+}
 
 #define UCP_SEND_REQUEST_GET_BY_ID(_req_p, _worker, _req_id, _extract, \
                                    _action, _fmt_str, ...) \

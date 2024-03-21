@@ -118,6 +118,13 @@ enum {
     UCP_RDESC_ALL_LIST  = 1
 };
 
+typedef struct ucp_request_state {
+    void                *buffer;
+    size_t              length;
+    ucp_datatype_iter_t dt_state;
+    uint32_t            use_count;
+} ucp_request_state_t;
+
 
 /**
  * Request in progress.
@@ -383,6 +390,11 @@ struct ucp_request {
             ucp_lane_index_t      lane;            /* Lane on which this request is being sent */
             uint8_t               proto_stage;     /* Protocol current stage */
             uct_pending_req_t     uct;             /* UCT pending request */
+            ucp_request_state_t   state_pack;
+            uint8_t               rts_in_progress;
+            uint32_t              ops_sn;
+            uint32_t              rndv_ops_sn;
+            uint32_t              rts_use_count;
         } send;
 
         /* "receive" part - used for tag_recv, am_recv and stream_recv operations */
@@ -457,6 +469,10 @@ struct ucp_request {
             unsigned                uct_flags;    /* Flags to pass to @ref uct_ep_flush */
         } flush_worker;
     };
+
+    uint32_t use_count;
+    ucp_request_state_t   state_init;
+    size_t  rts_size;
 };
 
 

@@ -506,6 +506,8 @@ typedef struct ucp_ep_ext {
 #if UCS_ENABLE_ASSERT
     ucs_time_t                    ka_last_round; /* Time of last KA round done */
 #endif
+    uint32_t                      ops_count;
+    uint32_t                      rndv_ops_count;
 
     /* Endpoint match context and remote completion status are mutually exclusive,
      * since remote completions are counted only after the endpoint is already
