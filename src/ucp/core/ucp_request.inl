@@ -128,6 +128,7 @@ UCS_PTR_MAP_IMPL(request, 0);
             __req = ((ucp_request_t*)(_param)->request) - 1; \
             ucp_request_id_reset(__req); \
             ucp_request_reset(__req); \
+            (__req)->use_count++; \
         } \
         __req; \
     })
