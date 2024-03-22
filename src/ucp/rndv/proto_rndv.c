@@ -754,12 +754,14 @@ void ucp_proto_rndv_receive_start(ucp_worker_h worker, ucp_request_t *recv_req,
                                   const ucp_rndv_rts_hdr_t *rts,
                                   const void *rkey_buffer, size_t rkey_length)
 {
+    ucp_context_t *context = worker->context;
     UCS_STRING_BUFFER_ONSTACK(strb, 1024);
-    UCS_STRING_BUFFER_ONSTACK(strb_unexp, 1024);
-    ucp_operation_id_t op_id;
+    ucs_string_buffer_t strb_unexp;
+    ucp_operation_id_t op_id, op_id_recv;
     ucs_status_t status;
     ucp_request_t *req;
     uint8_t sg_count;
+    size_t rts_size;
     ucp_ep_h ep;
 
     UCP_WORKER_GET_VALID_EP_BY_ID(&ep, worker, rts->sreq.ep_id, {
@@ -779,14 +781,44 @@ void ucp_proto_rndv_receive_start(ucp_worker_h worker, ucp_request_t *recv_req,
     req->send.rndv.remote_address = rts->address;
     req->send.rndv.offset         = 0;
     req->status                   = UCS_OK;
+    req->send.forced_rtr          = 0;
+    rts_size                      = rts->size;
+    op_id_recv                    = UCP_OP_ID_RNDV_RECV;
     ucp_request_set_super(req, recv_req);
 
-    if (ucs_likely(rts->size <= recv_req->recv.dt_iter.length)) {
+    if (ucs_unlikely(rts_size > recv_req->recv.dt_iter.length)) {
+        ucs_string_buffer_init(&strb_unexp);
+        ucs_string_buffer_appendf(&strb, "RTS ");
+        uct_tag_rndv_rts_str(rts, &strb);
+        ucp_request_state_str(&recv_req->state_init, "init", &strb);
+        ucs_string_buffer_appendf(&strb,
+           "rx_dt_iter [len %zu, addr %p] tag [tag 0x%"PRIx64" mask 0x%"PRIx64"]",
+           recv_req->recv.dt_iter.length, recv_req->recv.dt_iter.type.contig.buffer,
+           recv_req->recv.tag.tag, recv_req->recv.tag.tag_mask);
+        ucs_error("%s",  ucs_string_buffer_cstr(&strb));
+        ucp_tag_unexp_recv_str(&worker->tm, &strb_unexp);
+        ucs_error("UNEXP: %s",  ucs_string_buffer_cstr(&strb_unexp));
+        ucs_string_buffer_cleanup(&strb_unexp);
+
+        if (context->config.ext.ignore_trunc) {
+            ucs_error("Ignore trunc, trim %zu to %zu",
+                      rts_size, recv_req->recv.dt_iter.length);
+            rts_size = recv_req->recv.dt_iter.length;
+        } else if (context->config.ext.force_rtr) {
+            ucs_error("Force RTR send, trim %zu to %zu",
+                      rts_size, recv_req->recv.dt_iter.length);
+            rts_size = recv_req->recv.dt_iter.length;
+            op_id_recv = UCP_OP_ID_RNDV_RECV_FORCE_RTR;
+            req->send.forced_rtr = 1;
+        }
+    }
+
+    if (ucs_likely(rts_size <= recv_req->recv.dt_iter.length)) {
         ucp_proto_rndv_check_rkey_length(rts->address, rkey_length, "rts");
-        op_id            = UCP_OP_ID_RNDV_RECV;
+        op_id            = op_id_recv;
         recv_req->status = UCS_OK;
         UCS_PROFILE_CALL_VOID(ucp_datatype_iter_move, &req->send.state.dt_iter,
-                              &recv_req->recv.dt_iter, rts->size, &sg_count);
+                              &recv_req->recv.dt_iter, rts_size, &sg_count);
     } else {
         /* Short receive: complete with error, and send reply to sender */
         rkey_length      = 0; /* Override rkey length to disable data fetch */
@@ -798,20 +830,11 @@ void ucp_proto_rndv_receive_start(ucp_worker_h worker, ucp_request_t *recv_req,
         ucp_datatype_iter_cleanup(&recv_req->recv.dt_iter, 1, UCP_DT_MASK_ALL);
         ucp_datatype_iter_init_null(&req->send.state.dt_iter,
                                     recv_req->recv.dt_iter.length, &sg_count);
-        uct_tag_rndv_rts_str(rts, &strb);
-        ucp_request_state_str(&recv_req->state_init, "init", &strb);
-        ucs_string_buffer_appendf(&strb,
-           "rx_dt_iter [len %zu, addr %p] tag [tag 0x%"PRIx64" mask 0x%"PRIx64"]",
-           recv_req->recv.dt_iter.length, recv_req->recv.dt_iter.type.contig.buffer,
-           recv_req->recv.tag.tag, recv_req->recv.tag.tag_mask);
-        ucs_error("%s",  ucs_string_buffer_cstr(&strb));
-        ucp_tag_unexp_recv_str(&worker->tm, &strb_unexp);
-        ucs_error("UNEXP: %s",  ucs_string_buffer_cstr(&strb_unexp));
 
     }
 
     status = ucp_proto_rndv_send_reply(worker, req, op_id,
-                                       recv_req->recv.op_attr, rts->size,
+                                       recv_req->recv.op_attr, rts_size,
                                        rkey_buffer, rkey_length, sg_count);
     if (status != UCS_OK) {
         ucp_datatype_iter_cleanup(&req->send.state.dt_iter, 1, UCP_DT_MASK_ALL);
@@ -873,7 +896,9 @@ static void ucp_proto_rndv_send_complete_one(void *request, ucs_status_t status,
 ucs_status_t
 ucp_proto_rndv_handle_rtr(void *arg, void *data, size_t length, unsigned flags)
 {
+    UCS_STRING_BUFFER_ONSTACK(strb, 256);
     ucp_worker_h worker           = arg;
+    ucp_context_t *context        = worker->context;
     const ucp_rndv_rtr_hdr_t *rtr = data;
     const ucp_proto_select_param_t *select_param;
     ucp_request_t *req, *freq;
@@ -900,6 +925,16 @@ ucp_proto_rndv_handle_rtr(void *arg, void *data, size_t length, unsigned flags)
     select_param = &req->send.proto_config->select_param;
     op_attr_mask = ucp_proto_select_op_attr_unpack(select_param->op_attr);
 
+    if (context->config.ext.force_rtr && rtr->forced_rtr) {
+            ucs_string_buffer_appendf(&strb,
+             "RX forced RTR [size %zu ], req: [op_sn %u, rndv_op_sn %u use_count %u], ",
+             rtr->size,  req->send.ops_sn,
+             req->send.rndv_ops_sn, req->use_count);
+            ucp_request_state_str(&req->state_init, "init", &strb);
+            ucp_request_state_str(&req->send.state_pack, "pack", &strb);
+            ucs_error("%s", ucs_string_buffer_cstr(&strb));
+    }
+
     if (rtr->size == req->send.state.dt_iter.length) {
         /* RTR covers the whole send request - use the send request directly */
         ucs_assert(rtr->offset == 0);
@@ -918,6 +953,15 @@ ucp_proto_rndv_handle_rtr(void *arg, void *data, size_t length, unsigned flags)
         ucs_assertv(req->send.state.dt_iter.dt_class == UCP_DATATYPE_CONTIG,
                     "fragmented rendezvous is not supported with datatype %s",
                     ucp_datatype_class_names[req->send.state.dt_iter.dt_class]);
+        if (context->config.ext.ignore_trunc && !rtr->forced_rtr) {
+                ucs_string_buffer_appendf(&strb,
+                 "RX trim: RTR [size %zu ], req: [op_sn %u, rndv_op_sn %u use_count %u], ",
+                 rtr->size,  req->send.ops_sn,
+                 req->send.rndv_ops_sn, req->use_count);
+                ucp_request_state_str(&req->state_init, "init", &strb);
+                ucp_request_state_str(&req->send.state_pack, "pack", &strb);
+                ucs_error("%s", ucs_string_buffer_cstr(&strb));
+        }
 
         /* Partial RTR, its "offset" and "size" fields specify part to send */
         status = ucp_proto_rndv_frag_request_alloc(worker, req, &freq);

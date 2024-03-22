@@ -115,6 +115,7 @@ ucp_proto_rndv_rtr_hdr_pack(ucp_request_t *req, ucp_rndv_rtr_hdr_t *rtr,
     rtr->size    = req->send.state.dt_iter.length;
     rtr->offset  = req->send.rndv.offset;
     rtr->address = (uintptr_t)buffer;
+    rtr->forced_rtr = req->send.forced_rtr;
     ucs_assert(rtr->size > 0);
 }
 
@@ -204,7 +205,10 @@ ucp_proto_rndv_rtr_init(const ucp_proto_init_params_t *init_params)
     ucp_proto_rndv_rtr_priv_t *rpriv = init_params->priv;
     ucs_status_t status;
 
-    if (!ucp_proto_rndv_op_check(init_params, UCP_OP_ID_RNDV_RECV, 0)) {
+    if (!ucp_proto_rndv_op_check_mask(init_params,
+                                      UCS_BIT(UCP_OP_ID_RNDV_RECV) |
+                                      UCS_BIT(UCP_OP_ID_RNDV_RECV_FORCE_RTR),
+                                      0)) {
         return UCS_ERR_UNSUPPORTED;
     }
 

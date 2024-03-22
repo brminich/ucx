@@ -65,6 +65,7 @@ typedef struct {
 
     /* Offset of the data in the recv buffer */
     size_t   offset;
+    uint8_t forced_rtr;
 } UCS_S_PACKED ucp_rndv_rtr_hdr_t;
 
 

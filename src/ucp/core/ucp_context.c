@@ -464,6 +464,12 @@ static ucs_config_field_t ucp_context_config_table[] = {
    " 'n' : Select RMA/AMO lanes according to performance charasteristics",
    ucs_offsetof(ucp_context_config_t, prefer_offload), UCS_CONFIG_TYPE_BOOL},
 
+  {"FORCE_RTR", "n", "",
+   ucs_offsetof(ucp_context_config_t, force_rtr), UCS_CONFIG_TYPE_BOOL},
+
+  {"IGNORE_TRUNC", "n", "",
+   ucs_offsetof(ucp_context_config_t, ignore_trunc), UCS_CONFIG_TYPE_BOOL},
+
   {NULL}
 };
 

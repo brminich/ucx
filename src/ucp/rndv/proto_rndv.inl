@@ -69,6 +69,7 @@ static UCS_F_ALWAYS_INLINE ucs_status_t
 ucp_proto_rndv_ats_handler(void *arg, void *data, size_t length, unsigned flags)
 {
     ucp_worker_h worker           = arg;
+    ucp_context_t *context        = worker->context;
     const ucp_reply_hdr_t *rephdr = data;
     ucs_status_t status           = rephdr->status;
     const ucp_rndv_ack_hdr_t *ats;
@@ -99,6 +100,17 @@ ucp_proto_rndv_ats_handler(void *arg, void *data, size_t length, unsigned flags)
         }
 
         if (!ucp_proto_common_frag_complete(req, ats->size, "rndv_ats")) {
+            if (context->config.ext.ignore_trunc || context->config.ext.force_rtr) {
+                ucs_string_buffer_appendf(&strb,
+                        "RX trimmed: ATS [size %zu rts_size %zu rts_use_count %u], "
+                        "req: [op_sn %u, rndv_op_sn %u use_count %u], ",
+                        ats->size, ats->rts_size, ats->use_count, req->send.ops_sn,
+                        req->send.rndv_ops_sn, req->use_count);
+                ucp_request_state_str(&req->state_init, "init", &strb);
+                ucp_request_state_str(&req->send.state_pack, "pack", &strb);
+                ucs_error("%s", ucs_string_buffer_cstr(&strb));
+            }
+
             return UCS_OK; /* Not completed */
         }
     }
@@ -363,6 +375,14 @@ ucp_proto_rndv_op_check(const ucp_proto_init_params_t *params,
                         ucp_operation_id_t op_id, int support_ppln)
 {
     return ucp_proto_init_check_op(params, UCS_BIT(op_id)) &&
+           (support_ppln || !ucp_proto_rndv_init_params_is_ppln_frag(params));
+}
+
+static UCS_F_ALWAYS_INLINE int
+ucp_proto_rndv_op_check_mask(const ucp_proto_init_params_t *params,
+                             uint64_t mask, int support_ppln)
+{
+    return ucp_proto_init_check_op(params, mask) &&
            (support_ppln || !ucp_proto_rndv_init_params_is_ppln_frag(params));
 }
 

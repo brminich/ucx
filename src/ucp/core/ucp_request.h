@@ -395,6 +395,7 @@ struct ucp_request {
             uint32_t              ops_sn;
             uint32_t              rndv_ops_sn;
             uint32_t              rts_use_count;
+            uint8_t               forced_rtr;
         } send;
 
         /* "receive" part - used for tag_recv, am_recv and stream_recv operations */
