@@ -123,6 +123,8 @@ static UCS_F_ALWAYS_INLINE size_t ucp_proto_rndv_rts_pack(
     rts->use_count   = req->use_count;
     rts->ops_sn      = req->send.ops_sn;
     rts->rndv_ops_sn = req->send.rndv_ops_sn;
+    rts->guard_before = 0xAA; // 0b10101010
+    rts->guard_after  = 0x55; // 0b01010101
     rpriv            = req->send.proto_config->priv;
 
     if ((rts->size == 0) ||

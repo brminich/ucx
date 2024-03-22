@@ -754,7 +754,7 @@ void ucp_proto_rndv_receive_start(ucp_worker_h worker, ucp_request_t *recv_req,
                                   const ucp_rndv_rts_hdr_t *rts,
                                   const void *rkey_buffer, size_t rkey_length)
 {
-    UCS_STRING_BUFFER_ONSTACK(strb, 256);
+    UCS_STRING_BUFFER_ONSTACK(strb, 1024);
     UCS_STRING_BUFFER_ONSTACK(strb_unexp, 1024);
     ucp_operation_id_t op_id;
     ucs_status_t status;
@@ -798,13 +798,12 @@ void ucp_proto_rndv_receive_start(ucp_worker_h worker, ucp_request_t *recv_req,
         ucp_datatype_iter_cleanup(&recv_req->recv.dt_iter, 1, UCP_DT_MASK_ALL);
         ucp_datatype_iter_init_null(&req->send.state.dt_iter,
                                     recv_req->recv.dt_iter.length, &sg_count);
-        ucs_string_buffer_appendf(&strb,
-                "RX trunc: RTS [size %zu address %p, tag 0x%lx epid 0x%lx reqid 0x%lx, "
-                "ops_sn %u rndv_ops_sn %u use_count %u], ",
-                rts->size, (void*)rts->address, ucp_tag_hdr_from_rts(rts)->tag,
-                rts->sreq.ep_id, rts->sreq.req_id,
-                rts->ops_sn, rts->rndv_ops_sn, rts->use_count);
+        uct_tag_rndv_rts_str(rts, &strb);
         ucp_request_state_str(&recv_req->state_init, "init", &strb);
+        ucs_string_buffer_appendf(&strb,
+           "rx_dt_iter [len %zu, addr %p] tag [tag 0x%"PRIx64" mask 0x%"PRIx64"]",
+           recv_req->recv.dt_iter.length, recv_req->recv.dt_iter.type.contig.buffer,
+           recv_req->recv.tag.tag, recv_req->recv.tag.tag_mask);
         ucs_error("%s",  ucs_string_buffer_cstr(&strb));
         ucp_tag_unexp_recv_str(&worker->tm, &strb_unexp);
         ucs_error("UNEXP: %s",  ucs_string_buffer_cstr(&strb_unexp));

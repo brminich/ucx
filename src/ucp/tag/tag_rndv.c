@@ -125,6 +125,17 @@ size_t ucp_tag_rndv_proto_rts_pack(void *dest, void *arg)
     return ucp_proto_rndv_rts_pack(req, tag_rts, sizeof(*tag_rts));
 }
 
+void uct_tag_rndv_rts_str(const ucp_rndv_rts_hdr_t *rts, ucs_string_buffer_t *strb)
+{
+    ucs_string_buffer_appendf(strb,
+                "[size %zu guards(0x%x|0x%x) address %p, tag 0x%lx epid 0x%lx reqid 0x%lx, "
+                "ops_sn %u rndv_ops_sn %u use_count %u] ",
+                rts->size, rts->guard_before, rts->guard_after,
+                (void*)rts->address, ucp_tag_hdr_from_rts(rts)->tag,
+                rts->sreq.ep_id, rts->sreq.req_id,
+                rts->ops_sn, rts->rndv_ops_sn, rts->use_count);
+}
+
 UCS_PROFILE_FUNC(ucs_status_t, ucp_tag_rndv_rts_progress, (self),
                  uct_pending_req_t *self)
 {

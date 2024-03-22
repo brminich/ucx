@@ -32,7 +32,9 @@ typedef struct {
     /* Holds the address of the data buffer on the sender's side */
     uint64_t          address;
     /* Size of the data for sending */
+    uint8_t           guard_before;
     size_t            size;
+    uint8_t           guard_after;
     /* RNDV proto opcode */
     uint8_t           opcode;
     uint32_t          use_count;

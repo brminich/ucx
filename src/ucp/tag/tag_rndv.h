@@ -53,4 +53,6 @@ ucp_tag_rndv_check_op_id(const ucp_proto_init_params_t *init_params)
                                    UCS_BIT(UCP_OP_ID_TAG_SEND_SYNC));
 }
 
+void uct_tag_rndv_rts_str(const ucp_rndv_rts_hdr_t *rts, ucs_string_buffer_t *strb);
+
 #endif
