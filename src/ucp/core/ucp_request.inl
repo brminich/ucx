@@ -73,6 +73,7 @@ UCS_PTR_MAP_IMPL(request, 0);
             ucp_request_reset_internal(_req, _worker); \
             UCS_PROFILE_REQUEST_NEW(_req, "ucp_request", 0); \
         } \
+        (_req)->use_count++; \
         _req; \
     })
 
@@ -128,7 +129,6 @@ UCS_PTR_MAP_IMPL(request, 0);
             ucp_request_id_reset(__req); \
             ucp_request_reset(__req); \
         } \
-        __req->use_count++; \
         __req; \
     })
 

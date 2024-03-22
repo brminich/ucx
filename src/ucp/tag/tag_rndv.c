@@ -139,6 +139,7 @@ void uct_tag_rndv_rts_str(const ucp_rndv_rts_hdr_t *rts, ucs_string_buffer_t *st
 UCS_PROFILE_FUNC(ucs_status_t, ucp_tag_rndv_rts_progress, (self),
                  uct_pending_req_t *self)
 {
+    UCS_STRING_BUFFER_ONSTACK(strb, 128);
     ucp_request_t *req = ucs_container_of(self, ucp_request_t, send.uct);
     const ucp_proto_rndv_ctrl_priv_t *rpriv;
     size_t max_rts_size;
@@ -160,6 +161,11 @@ UCS_PROFILE_FUNC(ucs_status_t, ucp_tag_rndv_rts_progress, (self),
     if (status == UCS_OK) {
         ucp_request_init_state(&req->send.state_pack, NULL, 0,
                                &req->send.state.dt_iter,  req->use_count);
+        if (req->send.rts_in_progress) {
+            ucp_request_state_str(&req->state_init, "init", &strb);
+            ucs_error("req is reused while rts is in progress %s",
+                    ucs_string_buffer_cstr(&strb));
+        }
         req->send.rts_in_progress = 1;
         UCP_EP_STAT_TAG_OP(req->send.ep, RNDV);
     }
