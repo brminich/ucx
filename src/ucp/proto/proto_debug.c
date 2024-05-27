@@ -107,7 +107,7 @@ void ucp_proto_select_init_trace_caps(const ucp_proto_init_params_t *init_params
     for (range_index = 0; range_index < proto_caps->num_ranges; ++range_index) {
         range_start = ucs_max(range_start, proto_caps->min_length);
         range_end   = proto_caps->ranges[range_index].max_length;
-        if (range_end > range_start) {
+        if (range_end >= range_start) {
             query_params.msg_length = range_start;
 
             ucp_proto_id_call(init_params->proto_id, query, &query_params,
