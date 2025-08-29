@@ -548,7 +548,7 @@ typedef struct ucp_ep_ext {
      * since remote completions are counted only after the endpoint is already
      * matched to a remote peer.
      */
-    union {
+    struct {
         ucp_ep_match_elem_t       ep_match;      /* Matching with remote endpoints */
         ucp_ep_flush_state_t      flush_state;   /* Remote completion status */
     };
