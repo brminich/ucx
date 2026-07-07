@@ -623,6 +623,92 @@ UCS_TEST_P(test_ucp_peer_failure, force_close, "RC_FC_ENABLE?=n",
             false /* must_fail */);
 }
 
+/* RMA-only peer failure tests, instantiated for the RMA variant alone.
+ * The feature set mirrors NIXL (RMA + AMO + AM), which is what exercises the
+ * multi-rail RMA protocol selection path that the failed-EP guard protects. */
+class test_ucp_peer_failure_rma : public test_ucp_peer_failure {
+public:
+    static void get_test_variants(std::vector<ucp_test_variant> &variants)
+    {
+        add_variant_with_value(variants,
+                               UCP_FEATURE_RMA | UCP_FEATURE_AMO32 |
+                                       UCP_FEATURE_AMO64 | UCP_FEATURE_AM,
+                               TEST_RMA, "rma");
+    }
+};
+
+/*
+ * Regression test: an RMA GET issued on an endpoint that has already
+ * transitioned to the failed state must not crash. Unlike ucp_put_nbx()
+ * (exercised by do_test()), ucp_get_nbx() has no short-message path and goes
+ * straight to protocol selection, where it used to dereference the torn-down
+ * endpoint/rkey configuration.
+ *
+ * The MAX_RMA_RAILS / RNDV_THRESH config mirrors NIXL, whose multi-rail RMA
+ * GET is what actually reaches the crashing protocol-selection path (a
+ * single-rail GET dispatches straight to a failed-lane stub and returns an
+ * error, so it would not reproduce the bug). See the UCP_EP_FLAG_FAILED guard
+ * in ucp_proto_request_send_op_rma().
+ */
+UCS_TEST_P(test_ucp_peer_failure_rma, rma_get_on_failed_ep,
+           "RNDV_THRESH=inf", "MAX_RMA_RAILS=2")
+{
+    skip_loopback();
+    init_buffers(UCS_KBYTE);
+
+    create_entity();
+    sender().connect(&stable_receiver(),  get_ep_params(), STABLE_EP_INDEX);
+    sender().connect(&failing_receiver(), get_ep_params(), FAILING_EP_INDEX);
+    set_rkeys();
+
+    /* Use a short UD peer timeout and leave it in effect: teardown flushes the
+     * sender worker, which must drain the dead peer's UD TX window, and that
+     * only clears once this timeout expires. The worker is destroyed at
+     * cleanup, so there is no need to restore the default. */
+    sender().set_ib_ud_peer_timeout(3.);
+    scoped_log_handler slh(wrap_errors_logger);
+
+    /* Kill the peer and drive the sender EP into the failed state. */
+    fail_receiver();
+    request_wait(send_nb(failing_sender(), m_failing_rkey));
+    flush_ep(sender(), 0, FAILING_EP_INDEX);
+    while (!m_err_count) {
+        progress();
+    }
+    ASSERT_TRUE(failing_sender()->flags & UCP_EP_FLAG_FAILED);
+
+    /* Record the failure on the sender entity so teardown force-closes (cancels)
+     * its endpoints instead of flushing them. The test installs its own error
+     * handler, which bypasses the entity's failure counter; without this the
+     * worker flush during disconnect() blocks trying to reach the dead peer. */
+    sender().add_err(m_err_status);
+
+    /* GET on the failed EP. The guard rejects it inline with UCS_ERR_CANCELED,
+     * before entering protocol selection. Without the guard the GET reaches
+     * protocol selection on the torn-down configuration: it crashes in the
+     * original report, and on this setup it instead returns the peer error
+     * (e.g. ENDPOINT_TIMEOUT) or leaves the request stuck. Requiring the
+     * guard's CANCELED status makes the test fail without the fix. */
+    ucp_request_param_t param;
+    param.op_attr_mask = UCP_OP_ATTR_FIELD_CALLBACK;
+    param.cb.send      = send_cb;
+    void *rreq = ucp_get_nbx(failing_sender(), m_sbuf->ptr(), m_sbuf->size(),
+                             (uintptr_t)m_rbuf->ptr(), m_failing_rkey, &param);
+    if (UCS_PTR_IS_PTR(rreq)) {
+        ADD_FAILURE() << "ucp_get_nbx on a failed endpoint was submitted "
+                         "instead of being rejected";
+        request_cancel(sender(), rreq);
+    } else {
+        EXPECT_EQ(UCS_ERR_CANCELED, UCS_PTR_STATUS(rreq))
+                << "ucp_get_nbx on a failed endpoint returned "
+                << ucs_status_string(UCS_PTR_STATUS(rreq));
+    }
+
+    m_failing_rkey.reset();
+}
+
+UCP_INSTANTIATE_TEST_CASE(test_ucp_peer_failure_rma)
+
 class test_ucp_peer_failure_keepalive : public test_ucp_peer_failure
 {
 public:
